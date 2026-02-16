@@ -1,9 +1,228 @@
 Set-StrictMode -Version Latest
 
+# ===========================================================================
+# NativeTaskbarTransparency.psm1
+# ===========================================================================
+# Windows 11 native DWM theming — no third-party software required.
+#
+# Uses DwmSetWindowAttribute (dwmapi.dll) + DwmExtendFrameIntoClientArea
+# following the "SetMica" technique (github.com/tringi/setmica):
+#   1. ExtendFrame(MARGINS -1) — "sheet of glass" for backdrop rendering
+#   2. SetBackdropType(Mica/Acrylic/Tabbed) — set the material
+#   3. SetCaptionColor(COLOR_NONE) — remove caption paint to show backdrop
+#
+# WHAT WORKS from an external process (confirmed on Build 26200 / 25H2):
+#
+#   COLORS (border, caption, text, dark mode):
+#   [YES] Notepad (WinUI3)            — border, caption, text, dark mode
+#   [YES] Terminal (WinUI3)            — border, caption, text, dark mode
+#   [YES] File Explorer (CabinetWClass)— border, caption, text, dark mode
+#   [YES] UWP apps (ApplicationFrame)  — border, caption, text, dark mode
+#   [NO]  Chrome/Edge/Electron         — Chromium renders its own frame
+#   [NO]  ConsoleWindowClass           — INVALID_HANDLE (protected process)
+#   [NO]  TaskManagerWindow            — INVALID_HANDLE (protected process)
+#
+#   BACKDROPS (Mica, Acrylic, Tabbed):
+#   [YES] Terminal                     — full backdrop (transparent client area)
+#   [PARTIAL] Notepad, Explorer, UWP   — title bar area only (opaque client)
+#   [NO]  Chrome/Edge/Electron         — paints own client area
+#   [NO]  Taskbar (Shell_TrayWnd)      — XAML taskbar ignores DWM + SWCA
+#
+#   NOTES:
+#   - API calls return S_OK even when effects are not visually rendered.
+#   - Apps that paint their own non-client area (Chromium) override DWM.
+#   - TaskbarAnimations=0 or VisualFX="Best Performance" may suppress effects.
+#   - Outdated GPU drivers may cause backdrop effects to silently fail.
+#   - The old SWCA API is kept as fallback for taskbar transparency.
+#
+# Requires: Windows 11 Build 22621+ (22H2), PowerShell 5.1+
+# ===========================================================================
+
 # ---------------------------------------------------------------------------
-# P/Invoke types for SetWindowCompositionAttribute
+# P/Invoke: NEW DWM-based approach (official Microsoft API)
 # ---------------------------------------------------------------------------
-$typeDefinition = @'
+$dwmTypeDefinition = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Collections.Generic;
+
+namespace W11ThemeSuite {
+    // MARGINS struct for DwmExtendFrameIntoClientArea
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MARGINS {
+        public int cxLeftWidth;
+        public int cxRightWidth;
+        public int cyTopHeight;
+        public int cyBottomHeight;
+
+        // Constructor: all margins to same value (-1 = sheet of glass)
+        public MARGINS(int allMargins) {
+            cxLeftWidth = allMargins;
+            cxRightWidth = allMargins;
+            cyTopHeight = allMargins;
+            cyBottomHeight = allMargins;
+        }
+    }
+
+    public static class DwmHelper {
+        // DwmSetWindowAttribute - THE official Microsoft API for window effects
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
+
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref uint pvAttribute, int cbAttribute);
+
+        // DwmExtendFrameIntoClientArea - CRITICAL for making backdrops visible!
+        // Without this call, DwmSetWindowAttribute sets the backdrop type but
+        // the effect is NOT rendered. You must extend the DWM frame into the
+        // client area using MARGINS(-1) ("sheet of glass") for the backdrop
+        // material to actually appear.
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        public static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS pMarInset);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+
+        // EnumWindows for applying to all visible windows
+        public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        public static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern int GetWindowTextLength(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+        public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+        // DWMWINDOWATTRIBUTE values (official Microsoft enum)
+        public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+        public const int DWMWA_BORDER_COLOR = 34;
+        public const int DWMWA_CAPTION_COLOR = 35;
+        public const int DWMWA_TEXT_COLOR = 36;
+        public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
+
+        // DWM_SYSTEMBACKDROP_TYPE values
+        public const int DWMSBT_AUTO = 0;              // Let DWM decide
+        public const int DWMSBT_NONE = 1;              // No backdrop
+        public const int DWMSBT_MAINWINDOW = 2;        // Mica
+        public const int DWMSBT_TRANSIENTWINDOW = 3;   // Desktop Acrylic
+        public const int DWMSBT_TABBEDWINDOW = 4;      // Mica Alt
+
+        // DWMWA_COLOR special values
+        public const uint DWMWA_COLOR_NONE = 0xFFFFFFFE;    // No border
+        public const uint DWMWA_COLOR_DEFAULT = 0xFFFFFFFF;  // System default
+
+        // Extend the DWM frame into the client area.
+        // MARGINS(-1) = "sheet of glass" — makes the entire window area
+        // eligible for DWM backdrop rendering.
+        public static int ExtendFrame(IntPtr hwnd) {
+            var margins = new MARGINS(-1);
+            return DwmExtendFrameIntoClientArea(hwnd, ref margins);
+        }
+
+        // Reset the DWM frame extension to default (no extension).
+        public static int ResetFrame(IntPtr hwnd) {
+            var margins = new MARGINS(0);
+            return DwmExtendFrameIntoClientArea(hwnd, ref margins);
+        }
+
+        // Apply backdrop type to a window.
+        // Uses the SetMica technique (github.com/tringi/setmica):
+        //   1. DwmExtendFrameIntoClientArea — extend DWM frame
+        //   2. DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE) — set backdrop
+        //   3. DwmSetWindowAttribute(DWMWA_CAPTION_COLOR, COLOR_NONE) — remove
+        //      caption color so the backdrop shows through the title bar
+        // Without steps 1+3, the API succeeds but the backdrop is NOT visible.
+        public static int SetBackdropType(IntPtr hwnd, int backdropType) {
+            if (backdropType == DWMSBT_AUTO || backdropType == DWMSBT_NONE) {
+                // Resetting: clear backdrop, restore default caption color, reset frame
+                int hr = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdropType, sizeof(int));
+                uint defaultColor = DWMWA_COLOR_DEFAULT;
+                DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref defaultColor, sizeof(uint));
+                ResetFrame(hwnd);
+                return hr;
+            } else {
+                // Applying the full SetMica sequence:
+                // Step 1: Extend DWM frame into client area (sheet of glass)
+                ExtendFrame(hwnd);
+                // Step 2: Set the backdrop type (Mica, Acrylic, Tabbed)
+                int hr = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref backdropType, sizeof(int));
+                // Step 3: Remove caption color so backdrop shows through title bar
+                uint noneColor = DWMWA_COLOR_NONE;
+                DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref noneColor, sizeof(uint));
+                return hr;
+            }
+        }
+
+        // Apply immersive dark mode to a window
+        public static int SetDarkMode(IntPtr hwnd, bool enable) {
+            int value = enable ? 1 : 0;
+            return DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref value, sizeof(int));
+        }
+
+        // Set border color (COLORREF = 0x00BBGGRR)
+        public static int SetBorderColor(IntPtr hwnd, uint color) {
+            return DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref color, sizeof(uint));
+        }
+
+        // Set caption color (COLORREF = 0x00BBGGRR)
+        public static int SetCaptionColor(IntPtr hwnd, uint color) {
+            return DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, ref color, sizeof(uint));
+        }
+
+        // Set text color (COLORREF = 0x00BBGGRR)
+        public static int SetTextColor(IntPtr hwnd, uint color) {
+            return DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, ref color, sizeof(uint));
+        }
+
+        // Get all visible top-level windows
+        public static List<IntPtr> GetVisibleWindows() {
+            var windows = new List<IntPtr>();
+            EnumWindows((hWnd, lParam) => {
+                if (IsWindowVisible(hWnd)) {
+                    // GWL_EXSTYLE = -20, WS_EX_TOOLWINDOW = 0x80, WS_EX_NOACTIVATE = 0x08000000
+                    int exStyle = GetWindowLong(hWnd, -20);
+                    bool isToolWindow = (exStyle & 0x80) != 0;
+                    bool hasTitle = GetWindowTextLength(hWnd) > 0;
+
+                    // Only include windows with title bars (real app windows)
+                    if (!isToolWindow && hasTitle) {
+                        windows.Add(hWnd);
+                    }
+                }
+                return true;
+            }, IntPtr.Zero);
+            return windows;
+        }
+
+        // Get window class name
+        public static string GetWindowClassName(IntPtr hwnd) {
+            var sb = new System.Text.StringBuilder(256);
+            GetClassName(hwnd, sb, sb.Capacity);
+            return sb.ToString();
+        }
+    }
+}
+'@
+
+Add-Type -TypeDefinition $dwmTypeDefinition -ErrorAction SilentlyContinue
+
+# ---------------------------------------------------------------------------
+# P/Invoke: OLD SWCA-based approach (undocumented, kept as fallback for
+# the taskbar window specifically)
+# ---------------------------------------------------------------------------
+$swcaTypeDefinition = @'
 using System;
 using System.Runtime.InteropServices;
 
@@ -33,30 +252,16 @@ namespace W11ThemeSuite {
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
 
-        // Accent states (from reverse-engineered ACCENT_STATE enum):
-        // 0 = ACCENT_DISABLED (default/opaque)
-        // 1 = ACCENT_ENABLE_GRADIENT
-        // 2 = ACCENT_ENABLE_TRANSPARENTGRADIENT
-        // 3 = ACCENT_ENABLE_BLURBEHIND (blur like Aero)
-        // 4 = ACCENT_ENABLE_ACRYLICBLURBEHIND (acrylic - frosted glass, RS4 1803+)
-        // 5 = ACCENT_ENABLE_HOSTBACKDROP (host backdrop, RS5 1809+)
-        // 6 = ACCENT_INVALID_STATE
-        //
-        // For fully transparent (clear): AccentState=2, GradientColor=0x00000000
-        // For acrylic dark: AccentState=4, GradientColor=0xCC000000
-        // For blur: AccentState=3, GradientColor=0x00000000
-        // For opaque colored: AccentState=1, GradientColor=0xFF{BBGGRR}
-
         public static bool Apply(IntPtr hwnd, int accentState, uint gradientColor) {
             var accent = new AccentPolicy {
                 AccentState = accentState,
-                AccentFlags = 2, // ACCENT_FLAG_ALLOW_SET_TRANSPARENCY
+                AccentFlags = 2,
                 GradientColor = gradientColor,
                 AnimationId = 0
             };
 
             var data = new WindowCompositionAttributeData {
-                Attribute = 19, // WCA_ACCENT_POLICY
+                Attribute = 19,
                 SizeOfData = Marshal.SizeOf(accent)
             };
 
@@ -74,7 +279,7 @@ namespace W11ThemeSuite {
 }
 '@
 
-Add-Type -TypeDefinition $typeDefinition -ErrorAction SilentlyContinue
+Add-Type -TypeDefinition $swcaTypeDefinition -ErrorAction SilentlyContinue
 
 # ---------------------------------------------------------------------------
 # Module-scoped constants
@@ -85,7 +290,18 @@ $script:RunValueName     = 'W11TaskbarTransparency'
 $script:StartupDir       = Join-Path $env:LOCALAPPDATA 'w11-theming-suite\TaskbarTransparency'
 
 # ---------------------------------------------------------------------------
-# Style-to-AccentState mapping
+# DWM backdrop type map (official API values)
+# ---------------------------------------------------------------------------
+$script:BackdropMap = @{
+    'auto'    = 0  # DWMSBT_AUTO
+    'none'    = 1  # DWMSBT_NONE
+    'mica'    = 2  # DWMSBT_MAINWINDOW
+    'acrylic' = 3  # DWMSBT_TRANSIENTWINDOW
+    'tabbed'  = 4  # DWMSBT_TABBEDWINDOW (Mica Alt)
+}
+
+# ---------------------------------------------------------------------------
+# Old SWCA style map (kept for backward-compat fallback)
 # ---------------------------------------------------------------------------
 $script:StyleMap = @{
     'clear'   = @{ AccentState = 2; DefaultColor = '00000000' }
@@ -95,9 +311,169 @@ $script:StyleMap = @{
     'normal'  = @{ AccentState = 0; DefaultColor = '00000000' }
 }
 
+# ---------------------------------------------------------------------------
+# Mapping from old SWCA style names to new DWM backdrop types
+# ---------------------------------------------------------------------------
+$script:LegacyToDwmMap = @{
+    'clear'   = 1  # DWMSBT_NONE
+    'blur'    = 3  # DWMSBT_TRANSIENTWINDOW (acrylic is closest to blur)
+    'acrylic' = 3  # DWMSBT_TRANSIENTWINDOW
+    'opaque'  = 1  # DWMSBT_NONE
+    'normal'  = 0  # DWMSBT_AUTO
+}
+
 # ===========================================================================
 # Private Helper Functions
 # ===========================================================================
+
+function ConvertTo-COLORREF {
+    <#
+    .SYNOPSIS
+        Converts an #RRGGBB or #AARRGGBB hex color string to a COLORREF uint32.
+    .DESCRIPTION
+        The Windows DwmSetWindowAttribute API expects colors in COLORREF format
+        which is BGR byte order: 0x00BBGGRR. This function converts standard
+        RGB hex notation to that format.
+
+        Special string values 'none' and 'default' return the corresponding
+        DWM sentinel values (DWMWA_COLOR_NONE and DWMWA_COLOR_DEFAULT).
+
+        Examples:
+          #FF0000 (red)   -> 0x000000FF
+          #00FF00 (green) -> 0x0000FF00
+          #0000FF (blue)  -> 0x00FF0000
+          #000000 (black) -> 0x00000000
+          'none'          -> 0xFFFFFFFE
+          'default'       -> 0xFFFFFFFF
+    .PARAMETER HexColor
+        A hex color string (#RRGGBB or #AARRGGBB) or a special keyword
+        ('none', 'default').
+    .OUTPUTS
+        System.UInt32 - The color in COLORREF (0x00BBGGRR) format.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$HexColor
+    )
+
+    # Handle special keyword values
+    # NOTE: PowerShell 5.1 treats hex literals > 0x7FFFFFFF as signed int64/int32
+    # which FAILS [uint32] cast. Use decimal literals or explicit conversion.
+    if ($HexColor -eq 'none') {
+        # DWMWA_COLOR_NONE = 0xFFFFFFFE = 4294967294 decimal
+        return ([uint32]4294967294)
+    }
+    if ($HexColor -eq 'default') {
+        # DWMWA_COLOR_DEFAULT = 0xFFFFFFFF = 4294967295 decimal
+        return ([uint32]4294967295)
+    }
+
+    $hex = $HexColor.TrimStart('#')
+
+    # Strip alpha channel if present (COLORREF does not use alpha)
+    if ($hex.Length -eq 8) {
+        $hex = $hex.Substring(2)  # drop AA prefix
+    }
+
+    if ($hex.Length -ne 6) {
+        throw "Invalid color format '$HexColor'. Expected #RRGGBB or #AARRGGBB."
+    }
+
+    $r = [Convert]::ToByte($hex.Substring(0, 2), 16)
+    $g = [Convert]::ToByte($hex.Substring(2, 2), 16)
+    $b = [Convert]::ToByte($hex.Substring(4, 2), 16)
+
+    # Pack as COLORREF: 0x00BBGGRR
+    [uint32]$colorref = ([uint32]$b -shl 16) -bor ([uint32]$g -shl 8) -bor $r
+    return $colorref
+}
+
+function ConvertTo-ABGRColor {
+    <#
+    .SYNOPSIS
+        Converts an ARGB hex color string to an ABGR uint for the old SWCA API.
+    .DESCRIPTION
+        Kept for backward compatibility with Set-W11NativeTaskbarTransparency.
+        Accepts colors in #AARRGGBB or #RRGGBB format.
+    .PARAMETER HexColor
+        Hex color string such as '#CC000000', 'FF336699', or '#336699'.
+    .OUTPUTS
+        System.UInt32 - The color in ABGR format.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$HexColor
+    )
+
+    $hex = $HexColor.TrimStart('#')
+
+    if ($hex.Length -eq 6) {
+        $hex = "FF$hex"
+    }
+
+    if ($hex.Length -ne 8) {
+        throw "Invalid color format '$HexColor'. Expected #AARRGGBB or #RRGGBB."
+    }
+
+    $a = [Convert]::ToByte($hex.Substring(0, 2), 16)
+    $r = [Convert]::ToByte($hex.Substring(2, 2), 16)
+    $g = [Convert]::ToByte($hex.Substring(4, 2), 16)
+    $b = [Convert]::ToByte($hex.Substring(6, 2), 16)
+
+    [uint32]$abgr = ([uint32]$a -shl 24) -bor ([uint32]$b -shl 16) -bor ([uint32]$g -shl 8) -bor $r
+    return $abgr
+}
+
+function Get-TopLevelWindows {
+    <#
+    .SYNOPSIS
+        Returns visible top-level application windows, optionally filtering
+        out shell/system windows.
+    .DESCRIPTION
+        Calls [W11ThemeSuite.DwmHelper]::GetVisibleWindows() and then
+        optionally excludes known system window classes such as
+        Shell_TrayWnd, Progman, WorkerW, etc.
+    .PARAMETER ExcludeSystemWindows
+        If set, filters out known Windows shell window classes that should
+        not receive backdrop/color changes.
+    .OUTPUTS
+        System.IntPtr[] - Array of window handles.
+    #>
+    [CmdletBinding()]
+    param(
+        [switch]$ExcludeSystemWindows
+    )
+
+    $systemClasses = @(
+        'Shell_TrayWnd',
+        'Shell_SecondaryTrayWnd',
+        'Progman',
+        'WorkerW',
+        'Windows.UI.Core.CoreWindow',
+        'ForegroundStaging',
+        'MultitaskingViewFrame',
+        'XamlExplorerHostIslandWindow',
+        'ConsoleWindowClass',     # Protected process — returns INVALID_HANDLE
+        'TaskManagerWindow'       # Protected process — returns INVALID_HANDLE
+    )
+
+    $windows = [W11ThemeSuite.DwmHelper]::GetVisibleWindows()
+
+    if ($ExcludeSystemWindows) {
+        $filtered = [System.Collections.Generic.List[IntPtr]]::new()
+        foreach ($hwnd in $windows) {
+            $className = [W11ThemeSuite.DwmHelper]::GetWindowClassName($hwnd)
+            if ($className -notin $systemClasses) {
+                $filtered.Add($hwnd)
+            }
+        }
+        return $filtered.ToArray()
+    }
+
+    return $windows.ToArray()
+}
 
 function Get-TaskbarHandles {
     <#
@@ -119,7 +495,7 @@ function Get-TaskbarHandles {
     $handles = @()
 
     # Primary taskbar
-    $primary = [W11ThemeSuite.TaskbarTransparency]::FindWindow('Shell_TrayWnd', $null)
+    $primary = [W11ThemeSuite.DwmHelper]::FindWindow('Shell_TrayWnd', $null)
     if ($primary -ne [IntPtr]::Zero) {
         $handles += $primary
     }
@@ -128,7 +504,7 @@ function Get-TaskbarHandles {
     if ($IncludeSecondary) {
         $child = [IntPtr]::Zero
         do {
-            $child = [W11ThemeSuite.TaskbarTransparency]::FindWindowEx(
+            $child = [W11ThemeSuite.DwmHelper]::FindWindowEx(
                 [IntPtr]::Zero, $child, 'Shell_SecondaryTrayWnd', $null
             )
             if ($child -ne [IntPtr]::Zero) {
@@ -138,46 +514,6 @@ function Get-TaskbarHandles {
     }
 
     return $handles
-}
-
-function ConvertTo-ABGRColor {
-    <#
-    .SYNOPSIS
-        Converts an ARGB hex color string to a ABGR uint for the Windows API.
-    .DESCRIPTION
-        Accepts colors in #AARRGGBB or #RRGGBB format (the '#' prefix is optional).
-        When only 6 hex digits are provided, alpha defaults to FF (fully opaque).
-        The Windows SetWindowCompositionAttribute API expects ABGR byte order.
-    .PARAMETER HexColor
-        Hex color string such as '#CC000000', 'FF336699', or '#336699'.
-    .OUTPUTS
-        System.UInt32 - The color in ABGR format.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]$HexColor
-    )
-
-    $hex = $HexColor.TrimStart('#')
-
-    if ($hex.Length -eq 6) {
-        # No alpha supplied; default to FF
-        $hex = "FF$hex"
-    }
-
-    if ($hex.Length -ne 8) {
-        throw "Invalid color format '$HexColor'. Expected #AARRGGBB or #RRGGBB."
-    }
-
-    $a = [Convert]::ToByte($hex.Substring(0, 2), 16)
-    $r = [Convert]::ToByte($hex.Substring(2, 2), 16)
-    $g = [Convert]::ToByte($hex.Substring(4, 2), 16)
-    $b = [Convert]::ToByte($hex.Substring(6, 2), 16)
-
-    # Pack as ABGR (little-endian uint32)
-    [uint32]$abgr = ([uint32]$a -shl 24) -bor ([uint32]$b -shl 16) -bor ([uint32]$g -shl 8) -bor $r
-    return $abgr
 }
 
 function Save-TransparencyConfig {
@@ -207,25 +543,307 @@ function Save-TransparencyConfig {
 # Public Functions
 # ===========================================================================
 
+function Set-W11WindowBackdrop {
+    <#
+    .SYNOPSIS
+        Applies a DWM system backdrop type to one or all visible windows.
+    .DESCRIPTION
+        Uses the official DwmSetWindowAttribute API with DWMWA_SYSTEMBACKDROP_TYPE
+        (attribute 38) to set the backdrop material on application windows.
+
+        This works on windows whose app framework supports DWM backdrops.
+        Confirmed working: Notepad (WinUI3), Terminal (WinUI3), File Explorer,
+        UWP apps. Apps that render their own frame (Chrome, Electron) will
+        ignore this. Supported backdrop types:
+
+          auto    - Let DWM decide the backdrop (system default)
+          none    - No system backdrop (opaque)
+          mica    - Mica material (subtle desktop tinting)
+          acrylic - Desktop Acrylic (frosted glass blur)
+          tabbed  - Mica Alt / Tabbed (variant of Mica)
+
+        NOTE: The taskbar (Shell_TrayWnd) is a XAML Islands window on Win11
+        22H2+ and may not respond to this API. Use Set-W11NativeTaskbarTransparency
+        for best-effort taskbar transparency.
+    .PARAMETER Style
+        The backdrop type to apply. Valid values: auto, none, mica, acrylic, tabbed.
+    .PARAMETER WindowHandle
+        Apply the backdrop to a specific window handle (IntPtr). If omitted and
+        -AllWindows is not specified, an error is shown.
+    .PARAMETER AllWindows
+        Enumerate all visible top-level application windows and apply the backdrop
+        to each one. System windows (taskbar, desktop, etc.) are excluded.
+    .PARAMETER DarkMode
+        Also force immersive dark mode (dark title bars) on the affected windows
+        via DWMWA_USE_IMMERSIVE_DARK_MODE.
+    .EXAMPLE
+        Set-W11WindowBackdrop -Style mica -AllWindows
+        # Apply Mica backdrop to all visible application windows.
+    .EXAMPLE
+        Set-W11WindowBackdrop -Style acrylic -AllWindows -DarkMode
+        # Apply Desktop Acrylic with dark title bars to all windows.
+    .EXAMPLE
+        $hwnd = [W11ThemeSuite.DwmHelper]::FindWindow('CabinetWClass', $null)
+        Set-W11WindowBackdrop -Style tabbed -WindowHandle $hwnd
+        # Apply Mica Alt to a specific Explorer window.
+    .OUTPUTS
+        System.Int32 - Number of windows successfully affected.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [ValidateSet('auto', 'none', 'mica', 'acrylic', 'tabbed')]
+        [string]$Style = 'mica',
+
+        [Parameter()]
+        [IntPtr]$WindowHandle = [IntPtr]::Zero,
+
+        [switch]$AllWindows,
+
+        [switch]$DarkMode
+    )
+
+    try {
+        $backdropType = $script:BackdropMap[$Style]
+
+        # Determine target windows
+        if ($AllWindows) {
+            $targets = @(Get-TopLevelWindows -ExcludeSystemWindows)
+        }
+        elseif ($WindowHandle -ne [IntPtr]::Zero) {
+            $targets = @($WindowHandle)
+        }
+        else {
+            Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
+            Write-Host 'Specify -WindowHandle or -AllWindows.'
+            return 0
+        }
+
+        if ($targets.Count -eq 0) {
+            Write-Host '[WARN]  ' -ForegroundColor Yellow -NoNewline
+            Write-Host 'No eligible windows found.'
+            return 0
+        }
+
+        $successCount = 0
+        foreach ($hwnd in $targets) {
+            $hr = [W11ThemeSuite.DwmHelper]::SetBackdropType($hwnd, $backdropType)
+            if ($hr -eq 0) {
+                $successCount++
+            }
+            else {
+                $className = [W11ThemeSuite.DwmHelper]::GetWindowClassName($hwnd)
+                Write-Verbose "DwmSetWindowAttribute failed on 0x$($hwnd.ToString('X')) ($className) HRESULT=0x$($hr.ToString('X8'))"
+            }
+
+            # Optionally set dark mode
+            if ($DarkMode) {
+                [W11ThemeSuite.DwmHelper]::SetDarkMode($hwnd, $true) | Out-Null
+            }
+        }
+
+        Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+        Write-Host "Backdrop '$Style' applied to $successCount of $($targets.Count) window(s)."
+
+        return $successCount
+    }
+    catch {
+        Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
+        Write-Host "Failed to set window backdrop: $_"
+        return 0
+    }
+}
+
+function Set-W11WindowColors {
+    <#
+    .SYNOPSIS
+        Sets border, caption, and/or text colors on one or all visible windows.
+    .DESCRIPTION
+        Uses the official DwmSetWindowAttribute API with DWMWA_BORDER_COLOR (34),
+        DWMWA_CAPTION_COLOR (35), and DWMWA_TEXT_COLOR (36) to customize window
+        chrome colors on Windows 11 22H2+ (build 22621+).
+
+        Colors are specified in standard #RRGGBB hex format. The API uses COLORREF
+        (0x00BBGGRR) internally; this function handles the conversion.
+
+        Special values:
+          'none'    - Remove the border entirely (DWMWA_COLOR_NONE = 0xFFFFFFFE)
+          'default' - Reset to system default color (DWMWA_COLOR_DEFAULT = 0xFFFFFFFF)
+
+        NOTE: These attributes affect the window's non-client area (title bar and
+        border). Confirmed working on Notepad, Terminal, File Explorer, and UWP
+        apps. Chrome/Edge/Electron apps render their own frame and will not
+        respond. Protected processes (ConsoleWindowClass, TaskManagerWindow)
+        return INVALID_HANDLE. Taskbar/XAML Islands are also unaffected.
+    .PARAMETER BorderColor
+        Hex color for the window border (#RRGGBB), or 'none' to remove borders,
+        or 'default' to restore system default.
+    .PARAMETER CaptionColor
+        Hex color for the title bar / caption area (#RRGGBB), or 'default'.
+    .PARAMETER TextColor
+        Hex color for the title bar text (#RRGGBB), or 'default'.
+    .PARAMETER WindowHandle
+        Apply colors to a specific window handle (IntPtr).
+    .PARAMETER AllWindows
+        Enumerate all visible top-level application windows and apply colors
+        to each. System windows are excluded.
+    .PARAMETER DarkMode
+        Also force immersive dark mode on the affected windows.
+    .EXAMPLE
+        Set-W11WindowColors -BorderColor '#FF0000' -AllWindows
+        # Set red borders on all application windows.
+    .EXAMPLE
+        Set-W11WindowColors -CaptionColor '#1A1A2E' -TextColor '#FFFFFF' -AllWindows -DarkMode
+        # Dark caption with white text and dark mode title bars.
+    .EXAMPLE
+        Set-W11WindowColors -BorderColor 'none' -CaptionColor 'default' -AllWindows
+        # Remove borders and reset caption to system default.
+    .OUTPUTS
+        System.Int32 - Number of windows successfully affected.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [string]$BorderColor,
+
+        [Parameter()]
+        [string]$CaptionColor,
+
+        [Parameter()]
+        [string]$TextColor,
+
+        [Parameter()]
+        [IntPtr]$WindowHandle = [IntPtr]::Zero,
+
+        [switch]$AllWindows,
+
+        [switch]$DarkMode
+    )
+
+    try {
+        # Validate that at least one color parameter was provided
+        if (-not $BorderColor -and -not $CaptionColor -and -not $TextColor) {
+            Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
+            Write-Host 'Specify at least one of -BorderColor, -CaptionColor, or -TextColor.'
+            return 0
+        }
+
+        # Pre-convert colors
+        $borderRef  = if ($BorderColor)  { ConvertTo-COLORREF -HexColor $BorderColor }  else { $null }
+        $captionRef = if ($CaptionColor) { ConvertTo-COLORREF -HexColor $CaptionColor } else { $null }
+        $textRef    = if ($TextColor)    { ConvertTo-COLORREF -HexColor $TextColor }    else { $null }
+
+        # Determine target windows
+        if ($AllWindows) {
+            $targets = @(Get-TopLevelWindows -ExcludeSystemWindows)
+        }
+        elseif ($WindowHandle -ne [IntPtr]::Zero) {
+            $targets = @($WindowHandle)
+        }
+        else {
+            Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
+            Write-Host 'Specify -WindowHandle or -AllWindows.'
+            return 0
+        }
+
+        if ($targets.Count -eq 0) {
+            Write-Host '[WARN]  ' -ForegroundColor Yellow -NoNewline
+            Write-Host 'No eligible windows found.'
+            return 0
+        }
+
+        $successCount = 0
+        foreach ($hwnd in $targets) {
+            $ok = $true
+
+            if ($null -ne $borderRef) {
+                $hr = [W11ThemeSuite.DwmHelper]::SetBorderColor($hwnd, $borderRef)
+                if ($hr -ne 0) {
+                    $ok = $false
+                    Write-Verbose "SetBorderColor failed on 0x$($hwnd.ToString('X')) HRESULT=0x$($hr.ToString('X8'))"
+                }
+            }
+
+            if ($null -ne $captionRef) {
+                $hr = [W11ThemeSuite.DwmHelper]::SetCaptionColor($hwnd, $captionRef)
+                if ($hr -ne 0) {
+                    $ok = $false
+                    Write-Verbose "SetCaptionColor failed on 0x$($hwnd.ToString('X')) HRESULT=0x$($hr.ToString('X8'))"
+                }
+            }
+
+            if ($null -ne $textRef) {
+                $hr = [W11ThemeSuite.DwmHelper]::SetTextColor($hwnd, $textRef)
+                if ($hr -ne 0) {
+                    $ok = $false
+                    Write-Verbose "SetTextColor failed on 0x$($hwnd.ToString('X')) HRESULT=0x$($hr.ToString('X8'))"
+                }
+            }
+
+            if ($DarkMode) {
+                [W11ThemeSuite.DwmHelper]::SetDarkMode($hwnd, $true) | Out-Null
+            }
+
+            if ($ok) { $successCount++ }
+        }
+
+        $parts = @()
+        if ($BorderColor)  { $parts += "border=$BorderColor" }
+        if ($CaptionColor) { $parts += "caption=$CaptionColor" }
+        if ($TextColor)    { $parts += "text=$TextColor" }
+        $colorSummary = $parts -join ', '
+
+        Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+        Write-Host "Colors ($colorSummary) applied to $successCount of $($targets.Count) window(s)."
+
+        return $successCount
+    }
+    catch {
+        Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
+        Write-Host "Failed to set window colors: $_"
+        return 0
+    }
+}
+
 function Set-W11NativeTaskbarTransparency {
     <#
     .SYNOPSIS
-        Applies a transparency effect to the Windows 11 taskbar natively.
+        Applies a transparency effect to the Windows 11 taskbar (backward-compatible).
     .DESCRIPTION
-        Uses the undocumented SetWindowCompositionAttribute API to set the
-        taskbar accent policy, achieving results identical to TranslucentTB
-        without any third-party software.
+        This function is kept for backward compatibility with scripts that used the
+        original SWCA-based approach. It now tries TWO approaches in order:
+
+        1. DwmSetWindowAttribute with DWMWA_SYSTEMBACKDROP_TYPE (official API).
+           Old style names are mapped to DWM backdrop types:
+             clear   -> DWMSBT_NONE (1)
+             blur    -> DWMSBT_TRANSIENTWINDOW (3) (acrylic is closest)
+             acrylic -> DWMSBT_TRANSIENTWINDOW (3)
+             opaque  -> DWMSBT_NONE (1)
+             normal  -> DWMSBT_AUTO (0)
+
+        2. SetWindowCompositionAttribute (undocumented SWCA API) as a fallback.
+           This was the original approach but has ZERO visual effect on Windows 11
+           22H2+ XAML taskbar, even though it returns success.
+
+        IMPORTANT LIMITATION: Neither API may produce visible results on the
+        Windows 11 22H2+ XAML taskbar. The taskbar is rendered through a XAML
+        composition layer that does not respect these window attributes.
+        For actual taskbar transparency, a TAP (Taskbar Appearance Plugin)
+        injection approach like TranslucentTB is required.
+
+        For ALL OTHER WINDOWS: Use Set-W11WindowBackdrop instead, which uses the
+        official DwmSetWindowAttribute API and works perfectly.
     .PARAMETER Style
         The transparency style to apply:
-          clear   - Fully transparent (see-through)
-          blur    - Gaussian blur behind the taskbar
-          acrylic - Frosted-glass acrylic effect
-          opaque  - Solid colored taskbar
-          normal  - Resets to the Windows default
+          clear   - Fully transparent (DWM: none, SWCA: transparent gradient)
+          blur    - Gaussian blur (DWM: acrylic, SWCA: blur behind)
+          acrylic - Frosted-glass acrylic (DWM: acrylic, SWCA: acrylic blur)
+          opaque  - Solid colored (DWM: none, SWCA: gradient)
+          normal  - Reset to Windows default (DWM: auto, SWCA: disabled)
     .PARAMETER Color
-        ARGB hex color for the gradient overlay (e.g. '#CC000000' for
-        semi-transparent black). If omitted, a sensible default is used
-        for the chosen style.
+        ARGB hex color for the SWCA gradient overlay (e.g. '#CC000000').
+        Only used by the SWCA fallback path. If omitted, a sensible default
+        is used for the chosen style.
     .PARAMETER AllMonitors
         Also apply the effect to taskbars on secondary monitors.
     .EXAMPLE
@@ -247,17 +865,7 @@ function Set-W11NativeTaskbarTransparency {
     )
 
     try {
-        # Resolve style settings
-        $styleInfo   = $script:StyleMap[$Style]
-        $accentState = $styleInfo.AccentState
-
-        if (-not $Color) {
-            $Color = '#' + $styleInfo.DefaultColor
-        }
-
-        $gradientColor = ConvertTo-ABGRColor -HexColor $Color
-
-        # Get taskbar handles (force array to ensure .Count works)
+        # Get taskbar handles
         $handles = @(Get-TaskbarHandles -IncludeSecondary:$AllMonitors)
 
         if ($handles.Count -eq 0) {
@@ -267,24 +875,60 @@ function Set-W11NativeTaskbarTransparency {
         }
 
         $successCount = 0
+        $dwmBackdropType = $script:LegacyToDwmMap[$Style]
+
         foreach ($hwnd in $handles) {
-            $result = [W11ThemeSuite.TaskbarTransparency]::Apply($hwnd, $accentState, $gradientColor)
-            if ($result) {
+            $applied = $false
+
+            # --- Approach 1: DwmSetWindowAttribute (official API, try first) ---
+            $hr = [W11ThemeSuite.DwmHelper]::SetBackdropType($hwnd, $dwmBackdropType)
+            if ($hr -eq 0) {
+                Write-Verbose "DWM backdrop type $dwmBackdropType applied to taskbar 0x$($hwnd.ToString('X'))"
+                $applied = $true
+            }
+            else {
+                Write-Verbose "DWM approach failed on taskbar 0x$($hwnd.ToString('X')) HRESULT=0x$($hr.ToString('X8')), trying SWCA fallback..."
+            }
+
+            # --- Approach 2: SWCA fallback (undocumented, may have no visual effect) ---
+            $styleInfo   = $script:StyleMap[$Style]
+            $accentState = $styleInfo.AccentState
+
+            $effectiveColor = $Color
+            if (-not $effectiveColor) {
+                $effectiveColor = '#' + $styleInfo.DefaultColor
+            }
+
+            $gradientColor = ConvertTo-ABGRColor -HexColor $effectiveColor
+
+            $swcaResult = [W11ThemeSuite.TaskbarTransparency]::Apply($hwnd, $accentState, $gradientColor)
+            if ($swcaResult -and -not $applied) {
+                Write-Verbose "SWCA fallback returned success on taskbar 0x$($hwnd.ToString('X')) (may have no visual effect on Win11 22H2+)"
+                $applied = $true
+            }
+
+            if ($applied) {
                 $successCount++
             }
             else {
                 Write-Host '[WARN]  ' -ForegroundColor Yellow -NoNewline
-                Write-Host "Failed to apply to handle 0x$($hwnd.ToString('X'))"
+                Write-Host "Both DWM and SWCA failed on taskbar handle 0x$($hwnd.ToString('X'))"
             }
         }
 
         if ($successCount -gt 0) {
             # Save state to registry
-            Save-TransparencyConfig -Style $Style -Color $Color `
+            $effectiveColor2 = $Color
+            if (-not $effectiveColor2) {
+                $effectiveColor2 = '#' + $script:StyleMap[$Style].DefaultColor
+            }
+            Save-TransparencyConfig -Style $Style -Color $effectiveColor2 `
                 -AllMonitors $AllMonitors.IsPresent -Enabled $true
 
             Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
             Write-Host "Taskbar transparency set to '$Style' on $successCount taskbar(s)."
+            Write-Host '        ' -NoNewline
+            Write-Host '(Note: Visual effect on Win11 22H2+ XAML taskbar may be limited. Use Set-W11WindowBackdrop for app windows.)' -ForegroundColor DarkGray
         }
         else {
             Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
@@ -304,9 +948,15 @@ function Get-W11NativeTaskbarTransparency {
     .DESCRIPTION
         Reads the persisted configuration from the registry key
         HKCU:\Software\w11-theming-suite\TaskbarTransparency and returns it
-        as a PSCustomObject.
+        as a PSCustomObject with Style, Color, AllMonitors, and Enabled
+        properties.
     .EXAMPLE
         Get-W11NativeTaskbarTransparency
+    .EXAMPLE
+        $config = Get-W11NativeTaskbarTransparency
+        if ($config.Enabled) { Write-Host "Transparency is active: $($config.Style)" }
+    .OUTPUTS
+        PSCustomObject with properties: Style, Color, AllMonitors, Enabled
     #>
     [CmdletBinding()]
     param()
@@ -341,10 +991,14 @@ function Get-W11NativeTaskbarTransparency {
 function Remove-W11NativeTaskbarTransparency {
     <#
     .SYNOPSIS
-        Removes taskbar transparency and resets to the Windows default.
+        Removes all window customizations and resets everything to system defaults.
     .DESCRIPTION
-        Applies AccentState 0 (disabled) to all taskbars, removes the
-        saved registry configuration, and unregisters any startup entries.
+        Resets the taskbar to its default state using both DWM and SWCA approaches,
+        resets all visible application windows to DWMSBT_AUTO backdrop type and
+        default colors, removes the saved registry configuration, and unregisters
+        any startup entries.
+
+        This is the "undo everything" function.
     .EXAMPLE
         Remove-W11NativeTaskbarTransparency
     #>
@@ -352,10 +1006,23 @@ function Remove-W11NativeTaskbarTransparency {
     param()
 
     try {
-        # Reset all taskbars to normal
-        $handles = @(Get-TaskbarHandles -IncludeSecondary)
-        foreach ($hwnd in $handles) {
+        # Reset all taskbars to normal via both APIs
+        $taskbarHandles = @(Get-TaskbarHandles -IncludeSecondary)
+        foreach ($hwnd in $taskbarHandles) {
+            # DWM: reset to auto
+            [W11ThemeSuite.DwmHelper]::SetBackdropType($hwnd, 0) | Out-Null
+            # SWCA: reset to disabled
             [W11ThemeSuite.TaskbarTransparency]::Apply($hwnd, 0, 0) | Out-Null
+        }
+
+        # Reset all application windows to defaults
+        $appWindows = @(Get-TopLevelWindows -ExcludeSystemWindows)
+        foreach ($hwnd in $appWindows) {
+            [W11ThemeSuite.DwmHelper]::SetBackdropType($hwnd, 0) | Out-Null
+            $defaultColor = [uint32]4294967295  # 0xFFFFFFFF - PS 5.1 safe
+            [W11ThemeSuite.DwmHelper]::SetBorderColor($hwnd, $defaultColor)  | Out-Null
+            [W11ThemeSuite.DwmHelper]::SetCaptionColor($hwnd, $defaultColor) | Out-Null
+            [W11ThemeSuite.DwmHelper]::SetTextColor($hwnd, $defaultColor)    | Out-Null
         }
 
         # Remove saved configuration from registry
@@ -375,12 +1042,13 @@ function Remove-W11NativeTaskbarTransparency {
         # Remove startup registration
         Unregister-W11TaskbarTransparencyStartup
 
+        $totalReset = $taskbarHandles.Count + $appWindows.Count
         Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
-        Write-Host 'Taskbar transparency removed and reset to system default.'
+        Write-Host "All customizations removed. Reset $totalReset window(s) to system defaults."
     }
     catch {
         Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
-        Write-Host "Failed to remove taskbar transparency: $_"
+        Write-Host "Failed to remove transparency: $_"
     }
 }
 
@@ -391,7 +1059,11 @@ function Register-W11TaskbarTransparencyStartup {
     .DESCRIPTION
         Creates a VBScript wrapper (to suppress the PowerShell window flash)
         and a PowerShell script that re-applies the configured transparency
-        style on login. The VBS is registered in the current user's Run key.
+        style on login. The VBS is registered in the current user's Run key
+        (HKCU:\Software\Microsoft\Windows\CurrentVersion\Run).
+
+        The startup script imports this module and calls
+        Set-W11NativeTaskbarTransparency with the saved parameters.
     .PARAMETER Style
         The transparency style to apply at startup.
     .PARAMETER Color
@@ -400,6 +1072,8 @@ function Register-W11TaskbarTransparencyStartup {
         Whether to apply to secondary-monitor taskbars as well.
     .EXAMPLE
         Register-W11TaskbarTransparencyStartup -Style acrylic -Color '#CC000000' -AllMonitors
+    .EXAMPLE
+        Register-W11TaskbarTransparencyStartup -Style clear
     #>
     [CmdletBinding()]
     param(
@@ -486,7 +1160,7 @@ function Unregister-W11TaskbarTransparencyStartup {
     .DESCRIPTION
         Deletes the VBS and PS1 scripts from the startup directory and
         removes the Run registry entry. Does not reset the current
-        taskbar state (use Remove-W11NativeTaskbarTransparency for that).
+        window state -- use Remove-W11NativeTaskbarTransparency for that.
     .EXAMPLE
         Unregister-W11TaskbarTransparencyStartup
     #>
@@ -537,6 +1211,8 @@ function Unregister-W11TaskbarTransparencyStartup {
 # Module exports
 # ---------------------------------------------------------------------------
 Export-ModuleMember -Function @(
+    'Set-W11WindowBackdrop',
+    'Set-W11WindowColors',
     'Set-W11NativeTaskbarTransparency',
     'Get-W11NativeTaskbarTransparency',
     'Remove-W11NativeTaskbarTransparency',

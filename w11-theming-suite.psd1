@@ -29,6 +29,8 @@
         'Test-W11TranslucentTBInstalled',
         'Get-W11TranslucentTBConfig',
         'Set-W11TranslucentTBConfig',
+        'Set-W11WindowBackdrop',
+        'Set-W11WindowColors',
         'Set-W11NativeTaskbarTransparency',
         'Get-W11NativeTaskbarTransparency',
         'Remove-W11NativeTaskbarTransparency',
