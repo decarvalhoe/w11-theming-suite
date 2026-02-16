@@ -1,0 +1,25 @@
+# User themes
+config/user/*
+!config/user/.gitkeep
+
+# Backups
+backups/*
+!backups/.gitkeep
+
+# Generated output
+output/*
+!output/.gitkeep
+
+# Temp scripts
+setup-dirs.ps1
+
+# OS files
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

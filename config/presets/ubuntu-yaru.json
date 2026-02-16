@@ -1,0 +1,111 @@
+{
+  "meta": {
+    "name": "Ubuntu Yaru",
+    "version": "1.0.0",
+    "author": "w11-theming-suite",
+    "description": "Ubuntu Yaru-inspired dark theme with orange accent and warm tones",
+    "tags": ["linux", "ubuntu", "yaru", "dark", "orange", "mimicry"],
+    "basedOn": null
+  },
+  "mode": {
+    "appsUseLightTheme": 0,
+    "systemUsesLightTheme": 0
+  },
+  "accentColor": {
+    "color": "#E95420",
+    "colorPrevalence": 1,
+    "colorPrevalenceTitleBars": 1,
+    "autoColorization": 0
+  },
+  "dwm": {
+    "enableTransparency": 0,
+    "colorizationColor": "0xFF2054E9",
+    "colorizationColorBalance": 80,
+    "colorizationAfterglowBalance": 10,
+    "colorizationBlurBalance": 30,
+    "enableAeroPeek": 1,
+    "forceEffectMode": 1
+  },
+  "taskbar": {
+    "alignment": 0,
+    "showSearch": 0,
+    "showTaskView": 0,
+    "showWidgets": 0,
+    "showChat": 0,
+    "useOLEDTransparency": 0
+  },
+  "wallpaper": {
+    "mode": "static",
+    "path": "ubuntu-yaru/wallpaper-01.jpg",
+    "style": 10,
+    "tileWallpaper": 0
+  },
+  "colors": {
+    "activeTitle": "44 44 44",
+    "background": "36 36 36",
+    "hilight": "233 84 32",
+    "hilightText": "255 255 255",
+    "titleText": "222 222 222",
+    "window": "48 48 48",
+    "windowText": "222 222 222",
+    "scrollbar": "60 60 60",
+    "inactiveTitle": "50 50 50",
+    "menu": "44 44 44",
+    "menuText": "222 222 222",
+    "activeBorder": "60 60 60",
+    "inactiveBorder": "50 50 50",
+    "appWorkspace": "36 36 36",
+    "buttonFace": "55 55 55",
+    "buttonShadow": "30 30 30",
+    "grayText": "130 130 130",
+    "buttonText": "222 222 222",
+    "inactiveTitleText": "130 130 130",
+    "buttonHilight": "70 70 70",
+    "buttonDkShadow": "20 20 20",
+    "buttonLight": "65 65 65",
+    "infoText": "222 222 222",
+    "infoWindow": "60 50 40",
+    "gradientActiveTitle": "44 44 44",
+    "gradientInactiveTitle": "50 50 50"
+  },
+  "cursors": {
+    "schemeName": "Ubuntu Yaru",
+    "setFolder": "ubuntu-yaru",
+    "roles": {
+      "Arrow": "Arrow.cur",
+      "Help": "Help.cur",
+      "AppStarting": "AppStarting.ani",
+      "Wait": "Wait.ani",
+      "Crosshair": "Crosshair.cur",
+      "IBeam": "IBeam.cur",
+      "NWPen": "NWPen.cur",
+      "No": "No.cur",
+      "SizeNS": "SizeNS.cur",
+      "SizeWE": "SizeWE.cur",
+      "SizeNWSE": "SizeNWSE.cur",
+      "SizeNESW": "SizeNESW.cur",
+      "SizeAll": "SizeAll.cur",
+      "UpArrow": "UpArrow.cur",
+      "Hand": "Hand.cur"
+    }
+  },
+  "sounds": {
+    "schemeName": "Ubuntu Yaru",
+    "setFolder": "ubuntu-yaru",
+    "events": {
+      "SystemAsterisk": "SystemAsterisk.wav",
+      "SystemNotification": "SystemNotification.wav",
+      "DeviceConnect": "DeviceConnect.wav",
+      "DeviceDisconnect": "DeviceDisconnect.wav"
+    }
+  },
+  "visualStyles": {
+    "path": "%SystemRoot%\\resources\\Themes\\Aero\\Aero.msstyles",
+    "colorStyle": "NormalColor",
+    "size": "NormalSize",
+    "transparency": 0,
+    "composition": 1
+  },
+  "desktopIcons": null,
+  "advanced": null
+}

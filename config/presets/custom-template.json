@@ -1,0 +1,47 @@
+{
+  "meta": {
+    "name": "My Custom Theme",
+    "version": "1.0.0",
+    "author": "Your Name",
+    "description": "",
+    "tags": [],
+    "basedOn": null
+  },
+  "_comment_basedOn": "Set basedOn to a preset name (e.g. 'deep-dark') to inherit its settings and only override what you need",
+
+  "mode": {
+    "appsUseLightTheme": null,
+    "systemUsesLightTheme": null
+  },
+  "_comment_mode": "0 = dark mode, 1 = light mode",
+
+  "accentColor": null,
+  "_comment_accentColor": "Set color to a hex value like '#0078D4'. colorPrevalence 1 shows accent on taskbar",
+
+  "dwm": null,
+  "_comment_dwm": "Desktop Window Manager settings: transparency, colorization, blur, Aero Peek",
+
+  "taskbar": null,
+  "_comment_taskbar": "Taskbar alignment (0=left, 1=center), search mode, widget and chat visibility",
+
+  "wallpaper": null,
+  "_comment_wallpaper": "Set mode to 'static' or 'slideshow'. style: 0=center, 2=stretch, 6=fit, 10=fill",
+
+  "colors": null,
+  "_comment_colors": "Classic color scheme with 26 keys. Each value is 'R G B' (e.g. '255 255 255')",
+
+  "cursors": null,
+  "_comment_cursors": "Custom cursor scheme: schemeName, setFolder, and 15 role-to-filename mappings",
+
+  "sounds": null,
+  "_comment_sounds": "Custom sound scheme: schemeName, setFolder, events and explorerEvents mappings",
+
+  "visualStyles": null,
+  "_comment_visualStyles": "Path to .msstyles file, colorStyle, size, transparency and composition toggles",
+
+  "desktopIcons": null,
+  "_comment_desktopIcons": "Paths to .ico files for computer, documents, network, recycleBinFull, recycleBinEmpty",
+
+  "advanced": null,
+  "_comment_advanced": "registryOverrides: array of {path, name, value, type}. thirdParty: tool executable paths"
+}

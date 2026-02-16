@@ -1,0 +1,132 @@
+{
+  "meta": {
+    "name": "Deep Dark",
+    "version": "1.0.0",
+    "author": "w11-theming-suite",
+    "description": "Advanced dark mode with deep blacks, purple accent, and transparency effects",
+    "tags": ["dark", "advanced", "transparency"],
+    "basedOn": null
+  },
+  "mode": {
+    "appsUseLightTheme": 0,
+    "systemUsesLightTheme": 0
+  },
+  "accentColor": {
+    "color": "#6E00FF",
+    "colorPrevalence": 1,
+    "colorPrevalenceTitleBars": 1,
+    "autoColorization": 0
+  },
+  "dwm": {
+    "enableTransparency": 1,
+    "colorizationColor": "0xC4FF006E",
+    "colorizationAfterglow": "0xC4FF006E",
+    "colorizationColorBalance": 50,
+    "colorizationAfterglowBalance": 10,
+    "colorizationBlurBalance": 70,
+    "colorizationGlassReflectionIntensity": 0,
+    "enableAeroPeek": 1,
+    "forceEffectMode": 2
+  },
+  "taskbar": {
+    "alignment": 1,
+    "showSearch": 1,
+    "showTaskView": 0,
+    "showWidgets": 0,
+    "showChat": 0,
+    "useOLEDTransparency": 1
+  },
+  "wallpaper": {
+    "mode": "static",
+    "path": "deep-dark/wallpaper-01.jpg",
+    "style": 10,
+    "tileWallpaper": 0
+  },
+  "colors": {
+    "ActiveTitle":          "30 0 60",
+    "Background":           "15 15 18",
+    "Hilight":              "110 0 255",
+    "HilightText":          "240 240 240",
+    "TitleText":            "230 230 235",
+    "Window":               "20 20 24",
+    "WindowText":           "225 225 230",
+    "Scrollbar":            "28 28 32",
+    "InactiveTitle":        "22 22 26",
+    "Menu":                 "24 24 28",
+    "WindowFrame":          "40 40 45",
+    "MenuText":             "220 220 225",
+    "ActiveBorder":         "50 20 90",
+    "InactiveBorder":       "30 30 34",
+    "AppWorkspace":         "18 18 22",
+    "ButtonFace":           "30 30 35",
+    "ButtonShadow":         "10 10 12",
+    "GrayText":             "110 110 120",
+    "ButtonText":           "225 225 230",
+    "InactiveTitleText":    "130 130 140",
+    "ButtonHilight":        "55 55 62",
+    "ButtonDkShadow":       "5 5 6",
+    "ButtonLight":          "45 45 50",
+    "InfoText":             "220 220 225",
+    "InfoWindow":           "28 22 40",
+    "GradientActiveTitle":  "60 0 120"
+  },
+  "cursors": {
+    "schemeName": "Deep Dark",
+    "setFolder": "deep-dark",
+    "roles": {
+      "Arrow":       "Arrow.cur",
+      "Help":        "Help.cur",
+      "AppStarting": "AppStarting.ani",
+      "Wait":        "Wait.ani",
+      "Crosshair":   "Crosshair.cur",
+      "IBeam":       "IBeam.cur",
+      "NWPen":       "NWPen.cur",
+      "No":          "No.cur",
+      "SizeNS":      "SizeNS.cur",
+      "SizeWE":      "SizeWE.cur",
+      "SizeNWSE":    "SizeNWSE.cur",
+      "SizeNESW":    "SizeNESW.cur",
+      "SizeAll":     "SizeAll.cur",
+      "UpArrow":     "UpArrow.cur",
+      "Hand":        "Hand.cur"
+    }
+  },
+  "sounds": {
+    "schemeName": "Deep Dark",
+    "setFolder": "deep-dark",
+    "events": {
+      "SystemAsterisk":      "asterisk.wav",
+      "SystemExclamation":   "exclamation.wav",
+      "SystemHand":          "hand.wav",
+      "SystemNotification":  "notification.wav",
+      "DeviceConnect":       "device-connect.wav",
+      "DeviceDisconnect":    "device-disconnect.wav"
+    },
+    "explorerEvents": {
+      "Navigating":          "navigating.wav",
+      "SecurityBand":        "security-band.wav"
+    }
+  },
+  "visualStyles": {
+    "path": "%SystemRoot%\\resources\\Themes\\Aero\\Aero.msstyles",
+    "colorStyle": "NormalColor",
+    "size": "NormalSize",
+    "colorizationColor": "0xC4FF006E",
+    "transparency": 1,
+    "composition": 1
+  },
+  "desktopIcons": {
+    "computer":        "deep-dark/icons/computer.ico",
+    "documents":       "deep-dark/icons/documents.ico",
+    "network":         "deep-dark/icons/network.ico",
+    "recycleBinFull":  "deep-dark/icons/recycle-bin-full.ico",
+    "recycleBinEmpty": "deep-dark/icons/recycle-bin-empty.ico"
+  },
+  "advanced": {
+    "registryOverrides": [],
+    "thirdParty": {
+      "msstyleEditorPath": "",
+      "micaForEveryonePath": ""
+    }
+  }
+}

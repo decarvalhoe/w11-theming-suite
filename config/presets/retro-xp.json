@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "name": "Retro XP",
+    "version": "1.0.0",
+    "author": "w11-theming-suite",
+    "description": "Windows XP Luna-inspired retro theme with classic blue taskbar and green Start button vibes",
+    "tags": ["retro", "xp", "luna", "classic", "blue", "mimicry"],
+    "basedOn": null
+  },
+  "mode": {
+    "appsUseLightTheme": 1,
+    "systemUsesLightTheme": 1
+  },
+  "accentColor": {
+    "color": "#003399",
+    "colorPrevalence": 1,
+    "colorPrevalenceTitleBars": 1,
+    "autoColorization": 0
+  },
+  "dwm": {
+    "enableTransparency": 0,
+    "colorizationColor": "0xFF993300",
+    "colorizationColorBalance": 90,
+    "colorizationAfterglowBalance": 5,
+    "colorizationBlurBalance": 10,
+    "enableAeroPeek": 0,
+    "forceEffectMode": 1
+  },
+  "taskbar": {
+    "alignment": 0,
+    "showSearch": 0,
+    "showTaskView": 0,
+    "showWidgets": 0,
+    "showChat": 0,
+    "useOLEDTransparency": 0
+  },
+  "wallpaper": {
+    "mode": "static",
+    "path": "retro-xp/wallpaper-01.jpg",
+    "style": 10,
+    "tileWallpaper": 0
+  },
+  "colors": {
+    "activeTitle": "0 78 152",
+    "background": "58 110 165",
+    "hilight": "49 106 197",
+    "hilightText": "255 255 255",
+    "titleText": "255 255 255",
+    "window": "255 255 255",
+    "windowText": "0 0 0",
+    "scrollbar": "212 208 200",
+    "inactiveTitle": "122 150 223",
+    "menu": "255 255 255",
+    "menuText": "0 0 0",
+    "activeBorder": "212 208 200",
+    "inactiveBorder": "212 208 200",
+    "appWorkspace": "128 128 128",
+    "buttonFace": "236 233 216",
+    "buttonShadow": "172 168 153",
+    "grayText": "172 168 153",
+    "buttonText": "0 0 0",
+    "inactiveTitleText": "216 228 248",
+    "buttonHilight": "255 255 255",
+    "buttonDkShadow": "113 111 100",
+    "buttonLight": "241 239 226",
+    "infoText": "0 0 0",
+    "infoWindow": "255 255 225",
+    "gradientActiveTitle": "61 149 255",
+    "gradientInactiveTitle": "166 202 240"
+  },
+  "cursors": {
+    "schemeName": "Retro XP",
+    "setFolder": "retro-xp",
+    "roles": {
+      "Arrow": "Arrow.cur",
+      "Help": "Help.cur",
+      "AppStarting": "AppStarting.ani",
+      "Wait": "Wait.ani",
+      "Crosshair": "Crosshair.cur",
+      "IBeam": "IBeam.cur",
+      "NWPen": "NWPen.cur",
+      "No": "No.cur",
+      "SizeNS": "SizeNS.cur",
+      "SizeWE": "SizeWE.cur",
+      "SizeNWSE": "SizeNWSE.cur",
+      "SizeNESW": "SizeNESW.cur",
+      "SizeAll": "SizeAll.cur",
+      "UpArrow": "UpArrow.cur",
+      "Hand": "Hand.cur"
+    }
+  },
+  "sounds": {
+    "schemeName": "Retro XP",
+    "setFolder": "retro-xp",
+    "events": {
+      ".Default": "Default.wav",
+      "SystemAsterisk": "SystemAsterisk.wav",
+      "SystemExclamation": "SystemExclamation.wav",
+      "SystemHand": "SystemHand.wav",
+      "SystemNotification": "SystemNotification.wav",
+      "SystemQuestion": "SystemQuestion.wav",
+      "SystemExit": "SystemExit.wav",
+      "WindowsLogon": "WindowsLogon.wav",
+      "WindowsLogoff": "WindowsLogoff.wav",
+      "DeviceConnect": "DeviceConnect.wav",
+      "DeviceDisconnect": "DeviceDisconnect.wav",
+      "Maximize": "Maximize.wav",
+      "Minimize": "Minimize.wav",
+      "RestoreUp": "RestoreUp.wav",
+      "RestoreDown": "RestoreDown.wav"
+    }
+  },
+  "visualStyles": {
+    "path": "%SystemRoot%\\resources\\Themes\\Aero\\Aero.msstyles",
+    "colorStyle": "NormalColor",
+    "size": "NormalSize",
+    "transparency": 0,
+    "composition": 1
+  },
+  "desktopIcons": null,
+  "advanced": null
+}
