@@ -132,7 +132,7 @@ function Send-SettingsChangeNotification {
 
     Add-W11NativeMethods
 
-    $HWND_BROADCAST = [IntPtr]::new([W11ThemeSuite.NativeMethods]::HWND_BROADCAST)
+    $HWND_BROADCAST = [IntPtr][long][W11ThemeSuite.NativeMethods]::HWND_BROADCAST
     $result = [UIntPtr]::Zero
 
     [W11ThemeSuite.NativeMethods]::SendMessageTimeout(
@@ -222,14 +222,22 @@ function Set-W11RegistryTheme {
         Write-Verbose '--- Applying DarkMode section ---'
         $modeConfig = $Config.mode
 
-        # mode = "dark" -> AppsUseLightTheme=0, SystemUsesLightTheme=0
-        # mode = "light" -> both = 1
-        $lightValue = if ($modeConfig -eq 'dark') { 0 } else { 1 }
-
+        # Map config properties to registry keys:
+        #   mode.appsUseLightTheme  -> AppsUseLightTheme  (0=dark, 1=light)
+        #   mode.systemUsesLightTheme -> SystemUsesLightTheme (0=dark, 1=light)
         foreach ($entry in $registryMap.DarkMode.GetEnumerator()) {
             $reg = $entry.Value
-            if ($PSCmdlet.ShouldProcess("$($reg.Path)\$($reg.Name)", "Set to $lightValue")) {
-                Set-RegistryValue -Path $reg.Path -Name $reg.Name -Type $reg.Type -Value $lightValue
+            # Match the registry key name to the config property
+            $configPropName = $entry.Key.Substring(0,1).ToLower() + $entry.Key.Substring(1)
+            $configValue = $modeConfig.PSObject.Properties[$configPropName]
+            if ($null -eq $configValue) {
+                $configValue = $modeConfig.PSObject.Properties[$entry.Key]
+            }
+            if ($null -ne $configValue -and $null -ne $configValue.Value) {
+                $val = [int]$configValue.Value
+                if ($PSCmdlet.ShouldProcess("$($reg.Path)\$($reg.Name)", "Set to $val")) {
+                    Set-RegistryValue -Path $reg.Path -Name $reg.Name -Type $reg.Type -Value $val
+                }
             }
         }
     }
