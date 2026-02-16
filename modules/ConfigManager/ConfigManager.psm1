@@ -72,19 +72,26 @@ function Test-W11ThemeConfigSchema {
 function Resolve-W11AssetPath {
     <#
     .SYNOPSIS
-        Converts a relative asset path to an absolute path anchored at the project root.
+        Converts a relative asset path to an absolute path.
     .DESCRIPTION
         If the supplied path is already rooted it is returned unchanged.
-        Otherwise the path is resolved relative to $script:ProjectRoot.
+        Otherwise the path is resolved relative to the given BasePath
+        (defaults to $script:ProjectRoot).
     .PARAMETER RelativePath
         The path value read from the JSON config (may be relative or absolute).
+    .PARAMETER BasePath
+        The base directory to resolve relative paths against.
+        Defaults to $script:ProjectRoot.
     #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
         [Parameter(Mandatory)]
         [AllowEmptyString()]
-        [string]$RelativePath
+        [string]$RelativePath,
+
+        [Parameter()]
+        [string]$BasePath = $script:ProjectRoot
     )
 
     # Nothing to resolve when the value is empty or null
@@ -97,8 +104,8 @@ function Resolve-W11AssetPath {
         return $RelativePath
     }
 
-    # Build absolute path from the project root
-    $absolute = Join-Path $script:ProjectRoot $RelativePath
+    # Build absolute path from the base path
+    $absolute = Join-Path $BasePath $RelativePath
     return $absolute
 }
 
@@ -117,28 +124,30 @@ function Resolve-AllAssetPaths {
         [PSCustomObject]$Config
     )
 
-    # cursors.setFolder
+    $assetsRoot = Join-Path $script:ProjectRoot 'assets'
+
+    # cursors.setFolder – relative to assets/cursors/
     if ($Config.PSObject.Properties['cursors'] -and
         $null -ne $Config.cursors -and
         $Config.cursors.PSObject.Properties['setFolder'] -and
         -not [string]::IsNullOrWhiteSpace($Config.cursors.setFolder)) {
-        $Config.cursors.setFolder = Resolve-W11AssetPath -RelativePath $Config.cursors.setFolder
+        $Config.cursors.setFolder = Resolve-W11AssetPath -RelativePath $Config.cursors.setFolder -BasePath (Join-Path $assetsRoot 'cursors')
     }
 
-    # sounds.setFolder
+    # sounds.setFolder – relative to assets/sounds/
     if ($Config.PSObject.Properties['sounds'] -and
         $null -ne $Config.sounds -and
         $Config.sounds.PSObject.Properties['setFolder'] -and
         -not [string]::IsNullOrWhiteSpace($Config.sounds.setFolder)) {
-        $Config.sounds.setFolder = Resolve-W11AssetPath -RelativePath $Config.sounds.setFolder
+        $Config.sounds.setFolder = Resolve-W11AssetPath -RelativePath $Config.sounds.setFolder -BasePath (Join-Path $assetsRoot 'sounds')
     }
 
-    # wallpaper.path
+    # wallpaper.path – relative to assets/wallpapers/
     if ($Config.PSObject.Properties['wallpaper'] -and
         $null -ne $Config.wallpaper -and
         $Config.wallpaper.PSObject.Properties['path'] -and
         -not [string]::IsNullOrWhiteSpace($Config.wallpaper.path)) {
-        $Config.wallpaper.path = Resolve-W11AssetPath -RelativePath $Config.wallpaper.path
+        $Config.wallpaper.path = Resolve-W11AssetPath -RelativePath $Config.wallpaper.path -BasePath (Join-Path $assetsRoot 'wallpapers')
     }
 
     return $Config

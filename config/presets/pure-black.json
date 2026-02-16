@@ -1,0 +1,109 @@
+{
+  "meta": {
+    "name": "Pure Black",
+    "version": "1.0.0",
+    "author": "w11-theming-suite",
+    "description": "Full OLED black theme matching TranslucentTB clear mode - zero light, zero distraction",
+    "tags": ["black", "oled", "pure", "minimal", "translucenttb", "clear"]
+  },
+  "mode": {
+    "appsUseLightTheme": 0,
+    "systemUsesLightTheme": 0
+  },
+  "accentColor": {
+    "color": "#000000",
+    "colorPrevalence": 0,
+    "colorPrevalenceTitleBars": 0,
+    "autoColorization": 0
+  },
+  "dwm": {
+    "enableTransparency": 1,
+    "colorizationColor": "0xC40C00D0",
+    "colorizationAfterglow": "0xC40C00D0",
+    "colorizationColorBalance": 0,
+    "colorizationAfterglowBalance": 0,
+    "colorizationBlurBalance": 0,
+    "colorizationGlassReflectionIntensity": 0,
+    "enableAeroPeek": 0,
+    "forceEffectMode": 1
+  },
+  "taskbar": {
+    "alignment": 0,
+    "showSearch": 0,
+    "showTaskView": 0,
+    "showWidgets": 0,
+    "showChat": 0,
+    "useOLEDTransparency": 1
+  },
+  "wallpaper": {
+    "mode": "static",
+    "path": "pure-black/wallpaper.png",
+    "style": 10,
+    "tileWallpaper": 0
+  },
+  "colors": {
+    "activeTitle": "0 0 0",
+    "background": "0 0 0",
+    "hilight": "40 40 40",
+    "hilightText": "255 255 255",
+    "titleText": "200 200 200",
+    "window": "0 0 0",
+    "windowText": "200 200 200",
+    "scrollbar": "20 20 20",
+    "inactiveTitle": "0 0 0",
+    "menu": "10 10 10",
+    "menuText": "200 200 200",
+    "activeBorder": "0 0 0",
+    "inactiveBorder": "0 0 0",
+    "appWorkspace": "0 0 0",
+    "buttonFace": "15 15 15",
+    "buttonShadow": "0 0 0",
+    "grayText": "100 100 100",
+    "buttonText": "200 200 200",
+    "inactiveTitleText": "100 100 100",
+    "buttonHilight": "30 30 30",
+    "buttonDkShadow": "0 0 0",
+    "buttonLight": "20 20 20",
+    "infoText": "200 200 200",
+    "infoWindow": "10 10 10",
+    "gradientActiveTitle": "0 0 0",
+    "gradientInactiveTitle": "0 0 0"
+  },
+  "cursors": null,
+  "sounds": null,
+  "visualStyles": {
+    "path": "%SystemRoot%\\resources\\Themes\\Aero\\Aero.msstyles",
+    "colorStyle": "NormalColor",
+    "size": "NormalSize",
+    "transparency": 1,
+    "composition": 1
+  },
+  "desktopIcons": null,
+  "advanced": {
+    "registryOverrides": [
+      {
+        "path": "HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+        "name": "UseOLEDTaskbarTransparency",
+        "value": 1,
+        "type": "DWord"
+      }
+    ],
+    "nativeTaskbar": {
+      "style": "clear",
+      "color": "#00000000",
+      "allMonitors": true,
+      "persist": true
+    },
+    "translucentTB": {
+      "managed": true,
+      "config": {
+        "desktop_appearance": {
+          "accent": "clear",
+          "color": "#00000000",
+          "show_peek": false,
+          "show_line": false
+        }
+      }
+    }
+  }
+}

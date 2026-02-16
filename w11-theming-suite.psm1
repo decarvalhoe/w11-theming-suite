@@ -13,6 +13,8 @@ $Modules = @(
     'CursorSchemeBuilder',
     'SoundSchemeBuilder',
     'WallpaperManager',
+    'TranslucentTBIntegration',
+    'NativeTaskbarTransparency',
     'ThemeOrchestrator'
 )
 
@@ -62,6 +64,16 @@ Export-ModuleMember -Function @(
     # WallpaperManager
     'Set-W11Wallpaper',
     'Get-W11Wallpaper',
+    # TranslucentTBIntegration
+    'Test-W11TranslucentTBInstalled',
+    'Get-W11TranslucentTBConfig',
+    'Set-W11TranslucentTBConfig',
+    # NativeTaskbarTransparency
+    'Set-W11NativeTaskbarTransparency',
+    'Get-W11NativeTaskbarTransparency',
+    'Remove-W11NativeTaskbarTransparency',
+    'Register-W11TaskbarTransparencyStartup',
+    'Unregister-W11TaskbarTransparencyStartup',
     # ThemeOrchestrator
     'Install-W11Theme',
     'Uninstall-W11Theme',

@@ -67,11 +67,11 @@ function Install-W11Theme {
         # 1. Load configuration
         # ------------------------------------------------------------------
         if ($PresetName) {
-            Write-Host "[1/6] Loading preset '$PresetName'..." -ForegroundColor Cyan
+            Write-Host "[1/7] Loading preset '$PresetName'..." -ForegroundColor Cyan
             $config = Get-W11ThemeConfig -PresetName $PresetName
         }
         elseif ($ConfigPath) {
-            Write-Host "[1/6] Loading config from '$ConfigPath'..." -ForegroundColor Cyan
+            Write-Host "[1/7] Loading config from '$ConfigPath'..." -ForegroundColor Cyan
             $config = Get-W11ThemeConfig -Path $ConfigPath
         }
         else {
@@ -97,11 +97,11 @@ function Install-W11Theme {
         $backupLabel = "pre-$($themeName -replace '\s','_')"
 
         if (-not $NoBackup) {
-            Write-Host "[2/6] Backing up current theme state as '$backupLabel'..." -ForegroundColor Yellow
+            Write-Host "[2/7] Backing up current theme state as '$backupLabel'..." -ForegroundColor Yellow
             Backup-W11ThemeState -Name $backupLabel -Force:$Force
         }
         else {
-            Write-Host "[2/6] Skipping backup (-NoBackup specified)." -ForegroundColor Yellow
+            Write-Host "[2/7] Skipping backup (-NoBackup specified)." -ForegroundColor Yellow
         }
 
         # ------------------------------------------------------------------
@@ -110,33 +110,33 @@ function Install-W11Theme {
 
         # 4a. Cursors
         if ($config.cursors) {
-            Write-Host "[3/6] Installing cursor scheme..." -ForegroundColor Cyan
+            Write-Host "[3/7] Installing cursor scheme..." -ForegroundColor Cyan
             Install-W11CursorScheme -Config $config -Activate
         }
         else {
-            Write-Host "[3/6] No cursor configuration found, skipping." -ForegroundColor Yellow
+            Write-Host "[3/7] No cursor configuration found, skipping." -ForegroundColor Yellow
         }
 
         # 4b. Sounds
         if ($config.sounds) {
-            Write-Host "[4/6] Installing sound scheme..." -ForegroundColor Cyan
+            Write-Host "[4/7] Installing sound scheme..." -ForegroundColor Cyan
             Install-W11SoundScheme -Config $config -Activate
         }
         else {
-            Write-Host "[4/6] No sound configuration found, skipping." -ForegroundColor Yellow
+            Write-Host "[4/7] No sound configuration found, skipping." -ForegroundColor Yellow
         }
 
         # 4c. Wallpaper
         if ($config.wallpaper) {
-            Write-Host "[5/6] Setting wallpaper..." -ForegroundColor Cyan
+            Write-Host "[5/7] Setting wallpaper..." -ForegroundColor Cyan
             Set-W11Wallpaper -Config $config
         }
         else {
-            Write-Host "[5/6] No wallpaper configuration found, skipping." -ForegroundColor Yellow
+            Write-Host "[5/7] No wallpaper configuration found, skipping." -ForegroundColor Yellow
         }
 
         # 4d. Apply registry theme settings
-        Write-Host "[6/6] Applying registry theme settings..." -ForegroundColor Cyan
+        Write-Host "[6/7] Applying registry theme settings..." -ForegroundColor Cyan
         Set-W11RegistryTheme -Config $config
 
         # 4e. Generate and apply .theme file
@@ -154,6 +154,55 @@ function Install-W11Theme {
 
         Write-Host "       Re-applying registry overrides..." -ForegroundColor Cyan
         Set-W11RegistryTheme -Config $config -Section @('DarkMode', 'AccentColor', 'DWM', 'Taskbar')
+
+        # 4g. Taskbar transparency (native approach first, TranslucentTB fallback)
+        $hasNativeTaskbar = $config.advanced -and $config.advanced.PSObject.Properties['nativeTaskbar']
+        $hasTTBConfig     = $config.advanced -and $config.advanced.PSObject.Properties['translucentTB']
+
+        if ($hasNativeTaskbar) {
+            # Native approach: SetWindowCompositionAttribute via P/Invoke — no third-party needed
+            $ntb = $config.advanced.nativeTaskbar
+            $style = if ($ntb.PSObject.Properties['style']) { $ntb.style } else { 'clear' }
+            $color = if ($ntb.PSObject.Properties['color']) { $ntb.color } else { $null }
+            $allMon = if ($ntb.PSObject.Properties['allMonitors'] -and $ntb.allMonitors) { $true } else { $false }
+            $persist = if ($ntb.PSObject.Properties['persist'] -and $ntb.persist) { $true } else { $false }
+
+            Write-Host "[7/7] Applying native taskbar transparency ($style)..." -ForegroundColor Cyan
+            $nativeParams = @{ Style = $style }
+            if ($color) { $nativeParams['Color'] = $color }
+            if ($allMon) { $nativeParams['AllMonitors'] = $true }
+            Set-W11NativeTaskbarTransparency @nativeParams
+
+            if ($persist) {
+                Write-Host "       Registering for login persistence..." -ForegroundColor Cyan
+                Register-W11TaskbarTransparencyStartup @nativeParams
+            }
+        }
+        elseif ($hasTTBConfig) {
+            # Fallback: TranslucentTB (if installed)
+            $ttbStatus = Test-W11TranslucentTBInstalled
+            if ($ttbStatus.Installed) {
+                Write-Host "[7/7] Applying TranslucentTB settings (fallback)..." -ForegroundColor Cyan
+                Set-W11TranslucentTBConfig -Config $config -Force
+            }
+            else {
+                # Neither native config nor TTB available — try to derive from TTB config
+                Write-Host "[7/7] TranslucentTB not installed. Deriving native taskbar settings..." -ForegroundColor Yellow
+                $ttbCfg = $config.advanced.translucentTB.config
+                if ($ttbCfg -and $ttbCfg.desktop_appearance) {
+                    $accent = $ttbCfg.desktop_appearance.accent
+                    $styleMap = @{ 'clear' = 'clear'; 'blur' = 'blur'; 'acrylic' = 'acrylic'; 'opaque' = 'opaque'; 'normal' = 'normal' }
+                    $mappedStyle = if ($styleMap.ContainsKey($accent)) { $styleMap[$accent] } else { 'clear' }
+                    $mappedColor = if ($ttbCfg.desktop_appearance.PSObject.Properties['color']) { $ttbCfg.desktop_appearance.color } else { $null }
+                    $nativeParams = @{ Style = $mappedStyle }
+                    if ($mappedColor) { $nativeParams['Color'] = $mappedColor }
+                    Set-W11NativeTaskbarTransparency @nativeParams
+                }
+            }
+        }
+        else {
+            Write-Host "[7/7] No taskbar transparency configuration found, skipping." -ForegroundColor Yellow
+        }
 
         # ------------------------------------------------------------------
         # 5. Success summary
