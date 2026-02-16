@@ -3,30 +3,30 @@ Set-StrictMode -Version Latest
 # ===========================================================================
 # NativeTaskbarTransparency.psm1
 # ===========================================================================
-# Windows 11 native DWM theming — no third-party software required.
+# Windows 11 native DWM theming -- no third-party software required.
 #
 # Uses DwmSetWindowAttribute (dwmapi.dll) + DwmExtendFrameIntoClientArea
 # following the "SetMica" technique (github.com/tringi/setmica):
-#   1. ExtendFrame(MARGINS -1) — "sheet of glass" for backdrop rendering
-#   2. SetBackdropType(Mica/Acrylic/Tabbed) — set the material
-#   3. SetCaptionColor(COLOR_NONE) — remove caption paint to show backdrop
+#   1. ExtendFrame(MARGINS -1) -- "sheet of glass" for backdrop rendering
+#   2. SetBackdropType(Mica/Acrylic/Tabbed) -- set the material
+#   3. SetCaptionColor(COLOR_NONE) -- remove caption paint to show backdrop
 #
 # WHAT WORKS from an external process (confirmed on Build 26200 / 25H2):
 #
 #   COLORS (border, caption, text, dark mode):
-#   [YES] Notepad (WinUI3)            — border, caption, text, dark mode
-#   [YES] Terminal (WinUI3)            — border, caption, text, dark mode
-#   [YES] File Explorer (CabinetWClass)— border, caption, text, dark mode
-#   [YES] UWP apps (ApplicationFrame)  — border, caption, text, dark mode
-#   [NO]  Chrome/Edge/Electron         — Chromium renders its own frame
-#   [NO]  ConsoleWindowClass           — INVALID_HANDLE (protected process)
-#   [NO]  TaskManagerWindow            — INVALID_HANDLE (protected process)
+#   [YES] Notepad (WinUI3)            -- border, caption, text, dark mode
+#   [YES] Terminal (WinUI3)            -- border, caption, text, dark mode
+#   [YES] File Explorer (CabinetWClass)-- border, caption, text, dark mode
+#   [YES] UWP apps (ApplicationFrame)  -- border, caption, text, dark mode
+#   [NO]  Chrome/Edge/Electron         -- Chromium renders its own frame
+#   [NO]  ConsoleWindowClass           -- INVALID_HANDLE (protected process)
+#   [NO]  TaskManagerWindow            -- INVALID_HANDLE (protected process)
 #
 #   BACKDROPS (Mica, Acrylic, Tabbed):
-#   [YES] Terminal                     — full backdrop (transparent client area)
-#   [PARTIAL] Notepad, Explorer, UWP   — title bar area only (opaque client)
-#   [NO]  Chrome/Edge/Electron         — paints own client area
-#   [NO]  Taskbar (Shell_TrayWnd)      — XAML taskbar ignores DWM + SWCA
+#   [YES] Terminal                     -- full backdrop (transparent client area)
+#   [PARTIAL] Notepad, Explorer, UWP   -- title bar area only (opaque client)
+#   [NO]  Chrome/Edge/Electron         -- paints own client area
+#   [NO]  Taskbar (Shell_TrayWnd)      -- XAML taskbar ignores DWM + SWCA
 #
 #   NOTES:
 #   - API calls return S_OK even when effects are not visually rendered.
@@ -124,7 +124,7 @@ namespace W11ThemeSuite {
         public const uint DWMWA_COLOR_DEFAULT = 0xFFFFFFFF;  // System default
 
         // Extend the DWM frame into the client area.
-        // MARGINS(-1) = "sheet of glass" — makes the entire window area
+        // MARGINS(-1) = "sheet of glass" -- makes the entire window area
         // eligible for DWM backdrop rendering.
         public static int ExtendFrame(IntPtr hwnd) {
             var margins = new MARGINS(-1);
@@ -139,9 +139,9 @@ namespace W11ThemeSuite {
 
         // Apply backdrop type to a window.
         // Uses the SetMica technique (github.com/tringi/setmica):
-        //   1. DwmExtendFrameIntoClientArea — extend DWM frame
-        //   2. DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE) — set backdrop
-        //   3. DwmSetWindowAttribute(DWMWA_CAPTION_COLOR, COLOR_NONE) — remove
+        //   1. DwmExtendFrameIntoClientArea -- extend DWM frame
+        //   2. DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE) -- set backdrop
+        //   3. DwmSetWindowAttribute(DWMWA_CAPTION_COLOR, COLOR_NONE) -- remove
         //      caption color so the backdrop shows through the title bar
         // Without steps 1+3, the API succeeds but the backdrop is NOT visible.
         public static int SetBackdropType(IntPtr hwnd, int backdropType) {
@@ -455,8 +455,8 @@ function Get-TopLevelWindows {
         'ForegroundStaging',
         'MultitaskingViewFrame',
         'XamlExplorerHostIslandWindow',
-        'ConsoleWindowClass',     # Protected process — returns INVALID_HANDLE
-        'TaskManagerWindow'       # Protected process — returns INVALID_HANDLE
+        'ConsoleWindowClass',     # Protected process -- returns INVALID_HANDLE
+        'TaskManagerWindow'       # Protected process -- returns INVALID_HANDLE
     )
 
     $windows = [W11ThemeSuite.DwmHelper]::GetVisibleWindows()
@@ -1207,6 +1207,348 @@ function Unregister-W11TaskbarTransparencyStartup {
     }
 }
 
+# ===========================================================================
+# TAP (Taskbar Appearance Plugin) Injection
+# ===========================================================================
+# Uses InitializeXamlDiagnosticsEx to inject TaskbarTAP.dll into explorer.exe.
+# This is the ONLY method that achieves true taskbar transparency on Win11 25H2,
+# because the XAML taskbar continuously re-applies its own accent policy,
+# overriding any external SWCA/DWM calls.
+#
+# The injected DLL implements IObjectWithSite + IVisualTreeServiceCallback2
+# to find and modify Rectangle#BackgroundFill in the taskbar XAML tree.
+# ===========================================================================
+
+# P/Invoke for DLL injection via CreateRemoteThread + LoadLibraryW
+# Two-stage approach (same as TranslucentTB):
+#   Stage 1 (PowerShell): Inject TaskbarTAP.dll into explorer.exe via CreateRemoteThread
+#   Stage 2 (inside DLL): DllMain spawns thread that calls InitializeXamlDiagnosticsEx
+$tapTypeDefinition = @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace W11ThemeSuite {
+    public static class TAPHelper {
+        // Find explorer.exe process that owns the taskbar
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        // Process manipulation for DLL injection
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint flAllocationType, uint flProtect);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] lpBuffer, uint nSize, out uint lpNumberOfBytesWritten);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi)]
+        public static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttributes, uint dwStackSize, IntPtr lpStartAddress, IntPtr lpParameter, uint dwCreationFlags, out uint lpThreadId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool VirtualFreeEx(IntPtr hProcess, IntPtr lpAddress, uint dwSize, uint dwFreeType);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        // Constants
+        public const uint PROCESS_ALL_ACCESS = 0x001F0FFF;
+        public const uint MEM_COMMIT = 0x1000;
+        public const uint MEM_RESERVE = 0x2000;
+        public const uint MEM_RELEASE = 0x8000;
+        public const uint PAGE_READWRITE = 0x04;
+        public const uint INFINITE = 0xFFFFFFFF;
+    }
+}
+'@
+
+try {
+    Add-Type -TypeDefinition $tapTypeDefinition -ErrorAction SilentlyContinue
+} catch {
+    # Type already loaded -- ignore
+}
+
+function Get-TaskbarExplorerPid {
+    <#
+    .SYNOPSIS
+    Gets the PID of the explorer.exe process that owns the taskbar (Shell_TrayWnd).
+    #>
+    $hTaskbar = [W11ThemeSuite.TAPHelper]::FindWindow('Shell_TrayWnd', $null)
+    if ($hTaskbar -eq [IntPtr]::Zero) {
+        Write-Error "Taskbar window (Shell_TrayWnd) not found."
+        return $null
+    }
+
+    $pid = [uint32]0
+    [W11ThemeSuite.TAPHelper]::GetWindowThreadProcessId($hTaskbar, [ref]$pid) | Out-Null
+
+    if ($pid -eq 0) {
+        Write-Error "Could not get PID for Shell_TrayWnd."
+        return $null
+    }
+
+    return $pid
+}
+
+function Invoke-TaskbarTAPInject {
+    <#
+    .SYNOPSIS
+    Injects TaskbarTAP.dll into explorer.exe for taskbar transparency.
+
+    .DESCRIPTION
+    Two-stage injection (same approach as TranslucentTB):
+      Stage 1: PowerShell injects TaskbarTAP.dll into explorer.exe via
+               CreateRemoteThread + LoadLibraryW.
+      Stage 2: The DLL's DllMain spawns a thread that calls
+               InitializeXamlDiagnosticsEx from WITHIN explorer.exe,
+               which registers the XAML visual tree watcher.
+
+    This is the ONLY method that works on Windows 11 25H2 for true taskbar
+    transparency, because the XAML taskbar continuously re-applies its own
+    accent, overriding any SWCA or DWM-based approach.
+
+    REQUIRES: Run as Administrator (for OpenProcess on explorer.exe).
+
+    .PARAMETER Mode
+    The appearance mode: 'Transparent', 'Acrylic', or 'Default'.
+
+    .EXAMPLE
+    Invoke-TaskbarTAPInject -Mode Transparent
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [ValidateSet('Transparent', 'Acrylic', 'Default')]
+        [string]$Mode = 'Transparent'
+    )
+
+    # Locate TaskbarTAP.dll
+    $moduleRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $tapDll = Join-Path $moduleRoot 'native\bin\TaskbarTAP.dll'
+    if (-not (Test-Path $tapDll)) {
+        Write-Error "TaskbarTAP.dll not found at: $tapDll. Run native\TaskbarTAP\build.cmd first."
+        return $false
+    }
+
+    $tapDllFull = (Resolve-Path $tapDll).Path
+    Write-Verbose "TAP DLL: $tapDllFull"
+
+    # Get the explorer.exe PID that owns the taskbar
+    $explorerPid = Get-TaskbarExplorerPid
+    if (-not $explorerPid) { return $false }
+    Write-Verbose "Explorer PID: $explorerPid"
+
+    Write-Host "Injecting TaskbarTAP.dll into explorer.exe (PID $explorerPid)..." -ForegroundColor Cyan
+
+    # Stage 1: Inject DLL via CreateRemoteThread + LoadLibraryW
+    # 1. Open the target process
+    $hProcess = [W11ThemeSuite.TAPHelper]::OpenProcess(
+        [W11ThemeSuite.TAPHelper]::PROCESS_ALL_ACCESS,
+        $false,
+        [uint32]$explorerPid
+    )
+    if ($hProcess -eq [IntPtr]::Zero) {
+        $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        Write-Error "OpenProcess failed (error $err). Are you running as Administrator?"
+        return $false
+    }
+    Write-Verbose "Opened explorer.exe process handle: $hProcess"
+
+    try {
+        # 2. Convert DLL path to UTF-16 bytes
+        $dllPathBytes = [System.Text.Encoding]::Unicode.GetBytes($tapDllFull + "`0")
+        $dllPathSize = [uint32]$dllPathBytes.Length
+
+        # 3. Allocate memory in explorer.exe for the DLL path string
+        $pRemoteMem = [W11ThemeSuite.TAPHelper]::VirtualAllocEx(
+            $hProcess,
+            [IntPtr]::Zero,
+            $dllPathSize,
+            ([W11ThemeSuite.TAPHelper]::MEM_COMMIT -bor [W11ThemeSuite.TAPHelper]::MEM_RESERVE),
+            [W11ThemeSuite.TAPHelper]::PAGE_READWRITE
+        )
+        if ($pRemoteMem -eq [IntPtr]::Zero) {
+            $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            Write-Error "VirtualAllocEx failed (error $err)"
+            return $false
+        }
+        Write-Verbose "Allocated remote memory at: $pRemoteMem ($dllPathSize bytes)"
+
+        # 4. Write the DLL path into explorer.exe's memory
+        $bytesWritten = [uint32]0
+        $wrote = [W11ThemeSuite.TAPHelper]::WriteProcessMemory(
+            $hProcess,
+            $pRemoteMem,
+            $dllPathBytes,
+            $dllPathSize,
+            [ref]$bytesWritten
+        )
+        if (-not $wrote) {
+            $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            Write-Error "WriteProcessMemory failed (error $err)"
+            return $false
+        }
+        Write-Verbose "Wrote $bytesWritten bytes to remote process"
+
+        # 5. Get address of LoadLibraryW in kernel32.dll
+        $hKernel32 = [W11ThemeSuite.TAPHelper]::GetModuleHandle("kernel32.dll")
+        if ($hKernel32 -eq [IntPtr]::Zero) {
+            Write-Error "GetModuleHandle(kernel32.dll) failed"
+            return $false
+        }
+        $pLoadLibraryW = [W11ThemeSuite.TAPHelper]::GetProcAddress($hKernel32, "LoadLibraryW")
+        if ($pLoadLibraryW -eq [IntPtr]::Zero) {
+            Write-Error "GetProcAddress(LoadLibraryW) failed"
+            return $false
+        }
+        Write-Verbose "LoadLibraryW address: $pLoadLibraryW"
+
+        # 6. Create a remote thread in explorer.exe that calls LoadLibraryW(dllPath)
+        $threadId = [uint32]0
+        $hThread = [W11ThemeSuite.TAPHelper]::CreateRemoteThread(
+            $hProcess,
+            [IntPtr]::Zero,
+            0,
+            $pLoadLibraryW,
+            $pRemoteMem,
+            0,
+            [ref]$threadId
+        )
+        if ($hThread -eq [IntPtr]::Zero) {
+            $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            Write-Error "CreateRemoteThread failed (error $err). Are you running as Administrator?"
+            return $false
+        }
+        Write-Verbose "Created remote thread (TID $threadId), waiting for LoadLibrary..."
+
+        # 7. Wait for the thread to finish (LoadLibrary + DllMain)
+        [W11ThemeSuite.TAPHelper]::WaitForSingleObject($hThread, 10000) | Out-Null
+        [W11ThemeSuite.TAPHelper]::CloseHandle($hThread) | Out-Null
+
+        # 8. Free the remote memory (the DLL path string, no longer needed)
+        [W11ThemeSuite.TAPHelper]::VirtualFreeEx(
+            $hProcess,
+            $pRemoteMem,
+            0,
+            [W11ThemeSuite.TAPHelper]::MEM_RELEASE
+        ) | Out-Null
+
+        Write-Host "DLL injected into explorer.exe!" -ForegroundColor Green
+        Write-Host "Waiting for XAML Diagnostics initialization..." -ForegroundColor Gray
+
+        # Stage 2 happens inside the DLL:
+        # DllMain -> SelfInjectThread -> InitializeXamlDiagnosticsEx
+        # This takes time (up to 30s with retries). Wait for shared memory to appear.
+        $maxWait = 45  # seconds
+        $waited = 0
+        $sharedMemReady = $false
+
+        while ($waited -lt $maxWait) {
+            Start-Sleep -Milliseconds 1000
+            $waited++
+
+            try {
+                $mmf = [System.IO.MemoryMappedFiles.MemoryMappedFile]::OpenExisting(
+                    'W11ThemeSuite_TaskbarTAP_Mode')
+                $mmf.Dispose()
+                $sharedMemReady = $true
+                break
+            }
+            catch {
+                # Shared memory not yet created -- DLL is still initializing
+                if ($waited % 5 -eq 0) {
+                    Write-Verbose "Still waiting for TAP initialization... ($waited s)"
+                }
+            }
+        }
+
+        if (-not $sharedMemReady) {
+            Write-Warning "TAP DLL was injected but shared memory not detected after ${maxWait}s."
+            Write-Warning "The XAML Diagnostics initialization may have failed inside explorer."
+            Write-Warning "Check that explorer.exe has XAML content (Win11 taskbar)."
+            return $false
+        }
+
+        Write-Host "XAML Diagnostics initialized successfully!" -ForegroundColor Green
+
+        # Set the desired mode via shared memory
+        Set-TaskbarTAPMode -Mode $Mode
+
+        Write-Host "Mode set to: $Mode" -ForegroundColor Green
+        Write-Host "Use Set-TaskbarTAPMode to change appearance at runtime." -ForegroundColor Gray
+        return $true
+    }
+    finally {
+        [W11ThemeSuite.TAPHelper]::CloseHandle($hProcess) | Out-Null
+    }
+}
+
+function Set-TaskbarTAPMode {
+    <#
+    .SYNOPSIS
+    Changes the taskbar appearance mode via shared memory IPC with the injected TAP DLL.
+
+    .DESCRIPTION
+    Writes to a named shared memory region (W11ThemeSuite_TaskbarTAP_Mode) that
+    the injected TaskbarTAP.dll monitors every 250ms. When a mode change is detected,
+    the DLL updates the XAML visual tree accordingly.
+
+    .PARAMETER Mode
+    The appearance mode: 'Transparent' (0 opacity), 'Acrylic' (semi-transparent), or 'Default' (reset).
+
+    .EXAMPLE
+    Set-TaskbarTAPMode -Mode Transparent
+
+    .EXAMPLE
+    Set-TaskbarTAPMode -Mode Default   # Reset to normal taskbar
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Transparent', 'Acrylic', 'Default')]
+        [string]$Mode
+    )
+
+    $modeMap = @{
+        'Default'     = 0
+        'Transparent' = 1
+        'Acrylic'     = 2
+    }
+    $modeInt = $modeMap[$Mode]
+
+    # Open the named shared memory (created by the DLL inside explorer.exe)
+    $sharedMemName = 'W11ThemeSuite_TaskbarTAP_Mode'
+
+    try {
+        # Use .NET MemoryMappedFile to write the mode
+        $mmf = [System.IO.MemoryMappedFiles.MemoryMappedFile]::OpenExisting($sharedMemName)
+        $accessor = $mmf.CreateViewAccessor(0, 4)
+        $accessor.Write(0, [int]$modeInt)
+        $accessor.Dispose()
+        $mmf.Dispose()
+        Write-Verbose "TAP mode set to $Mode ($modeInt) via shared memory."
+    }
+    catch {
+        Write-Error "Failed to set TAP mode. Is the TAP DLL injected? Error: $_"
+        return $false
+    }
+
+    return $true
+}
+
 # ---------------------------------------------------------------------------
 # Module exports
 # ---------------------------------------------------------------------------
@@ -1217,5 +1559,8 @@ Export-ModuleMember -Function @(
     'Get-W11NativeTaskbarTransparency',
     'Remove-W11NativeTaskbarTransparency',
     'Register-W11TaskbarTransparencyStartup',
-    'Unregister-W11TaskbarTransparencyStartup'
+    'Unregister-W11TaskbarTransparencyStartup',
+    'Invoke-TaskbarTAPInject',
+    'Set-TaskbarTAPMode',
+    'Get-TaskbarExplorerPid'
 )

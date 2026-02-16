@@ -13,6 +13,13 @@ output/*
 # Temp scripts
 setup-dirs.ps1
 
+# Native build output (DLL is checked in, but build artifacts are not)
+native/bin/*.lib
+native/bin/*.exp
+native/bin/*.log
+native/bin/*_new.*
+native/TaskbarTAP/obj/
+
 # OS files
 Thumbs.db
 desktop.ini

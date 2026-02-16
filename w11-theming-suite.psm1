@@ -76,6 +76,10 @@ Export-ModuleMember -Function @(
     'Remove-W11NativeTaskbarTransparency',
     'Register-W11TaskbarTransparencyStartup',
     'Unregister-W11TaskbarTransparencyStartup',
+    # NativeTaskbarTransparency (TAP injection)
+    'Invoke-TaskbarTAPInject',
+    'Set-TaskbarTAPMode',
+    'Get-TaskbarExplorerPid',
     # ThemeOrchestrator
     'Install-W11Theme',
     'Uninstall-W11Theme',
