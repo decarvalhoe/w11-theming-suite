@@ -1,0 +1,439 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://w11-theming-suite/config/schema.json",
+  "title": "W11 Theming Suite - Theme Configuration",
+  "description": "JSON Schema for validating Windows 11 theme configuration files used by w11-theming-suite.",
+  "type": "object",
+  "required": ["meta", "mode"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "description": "Theme metadata: identity, versioning, and attribution.",
+      "required": ["name", "version", "author"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable theme name."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Semantic version (major.minor.patch)."
+        },
+        "author": {
+          "type": "string",
+          "description": "Theme author or organization."
+        },
+        "description": {
+          "type": "string",
+          "description": "Short description of the theme."
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Searchable tags for categorization."
+        },
+        "basedOn": {
+          "type": ["string", "null"],
+          "description": "Name of a parent preset to inherit from, or null for standalone."
+        }
+      },
+      "additionalProperties": false
+    },
+    "mode": {
+      "type": "object",
+      "description": "Light/dark mode switches for apps and system shell.",
+      "properties": {
+        "appsUseLightTheme": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "0 = apps use dark theme, 1 = apps use light theme."
+        },
+        "systemUsesLightTheme": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "0 = system shell uses dark theme, 1 = system shell uses light theme."
+        }
+      },
+      "additionalProperties": false
+    },
+    "accentColor": {
+      "type": ["object", "null"],
+      "description": "Accent color and prevalence settings.",
+      "properties": {
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "description": "Accent color in #RRGGBB hex format."
+        },
+        "colorPrevalence": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = show accent color on Start menu, taskbar, and action center."
+        },
+        "colorPrevalenceTitleBars": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = show accent color on title bars and window borders."
+        },
+        "autoColorization": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = automatically pick an accent color from the wallpaper."
+        }
+      },
+      "additionalProperties": false
+    },
+    "dwm": {
+      "type": ["object", "null"],
+      "description": "Desktop Window Manager composition and colorization settings.",
+      "properties": {
+        "enableTransparency": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = enable transparency effects in the shell."
+        },
+        "colorizationColor": {
+          "type": "string",
+          "pattern": "^0x[0-9A-Fa-f]{8}$",
+          "description": "DWM colorization color in 0xAARRGGBB hex format."
+        },
+        "colorizationAfterglow": {
+          "type": "string",
+          "pattern": "^0x[0-9A-Fa-f]{8}$",
+          "description": "DWM afterglow color in 0xAARRGGBB hex format."
+        },
+        "colorizationColorBalance": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Colorization color intensity balance (0-100)."
+        },
+        "colorizationAfterglowBalance": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Afterglow intensity balance (0-100)."
+        },
+        "colorizationBlurBalance": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Blur intensity balance (0-100)."
+        },
+        "colorizationGlassReflectionIntensity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Glass reflection intensity (0-100)."
+        },
+        "enableAeroPeek": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = enable Aero Peek desktop preview."
+        },
+        "forceEffectMode": {
+          "type": "integer",
+          "enum": [0, 1, 2],
+          "description": "0 = default, 1 = force disable, 2 = force enable effects."
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskbar": {
+      "type": ["object", "null"],
+      "description": "Taskbar layout and visibility settings.",
+      "properties": {
+        "alignment": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "0 = left-aligned taskbar, 1 = center-aligned taskbar."
+        },
+        "showSearch": {
+          "type": "integer",
+          "enum": [0, 1, 2, 3],
+          "description": "0 = hidden, 1 = icon only, 2 = icon and label, 3 = search box."
+        },
+        "showTaskView": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = show the Task View button."
+        },
+        "showWidgets": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = show the Widgets button."
+        },
+        "showChat": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = show the Chat button."
+        },
+        "useOLEDTransparency": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = use enhanced OLED-optimized transparency on the taskbar."
+        }
+      },
+      "additionalProperties": false
+    },
+    "wallpaper": {
+      "type": ["object", "null"],
+      "description": "Desktop wallpaper configuration (static image or slideshow).",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["static", "slideshow"],
+          "description": "Wallpaper mode: single static image or rotating slideshow."
+        },
+        "path": {
+          "type": "string",
+          "description": "Relative path to the wallpaper image (static mode)."
+        },
+        "style": {
+          "type": "integer",
+          "enum": [0, 2, 6, 10],
+          "description": "0 = center, 2 = stretch, 6 = fit, 10 = fill."
+        },
+        "tileWallpaper": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = tile the wallpaper image."
+        },
+        "slideshow": {
+          "type": "object",
+          "description": "Slideshow-specific settings (used when mode is 'slideshow').",
+          "properties": {
+            "imagesRootPath": {
+              "type": "string",
+              "description": "Root folder containing slideshow images."
+            },
+            "items": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Ordered list of image filenames for the slideshow."
+            },
+            "intervalMs": {
+              "type": "integer",
+              "minimum": 10000,
+              "description": "Rotation interval in milliseconds (minimum 10 000 ms)."
+            },
+            "shuffle": {
+              "type": "integer",
+              "enum": [0, 1],
+              "description": "1 = randomize slideshow order."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "colors": {
+      "type": ["object", "null"],
+      "description": "Classic Windows color scheme. Each value is 'R G B' (three space-separated integers 0-255).",
+      "properties": {
+        "ActiveTitle":            { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "Background":            { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "Hilight":               { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "HilightText":           { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "TitleText":             { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "Window":                { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "WindowText":            { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "Scrollbar":             { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "InactiveTitle":         { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "Menu":                  { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "WindowFrame":           { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "MenuText":              { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "ActiveBorder":          { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "InactiveBorder":        { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "AppWorkspace":          { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "ButtonFace":            { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "ButtonShadow":          { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "GrayText":              { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "ButtonText":            { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "InactiveTitleText":     { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "ButtonHilight":         { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "ButtonDkShadow":        { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "ButtonLight":           { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "InfoText":              { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "InfoWindow":            { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" },
+        "GradientActiveTitle":   { "type": "string", "pattern": "^\\d{1,3} \\d{1,3} \\d{1,3}$" }
+      },
+      "additionalProperties": false
+    },
+    "cursors": {
+      "type": ["object", "null"],
+      "description": "Custom cursor scheme configuration.",
+      "properties": {
+        "schemeName": {
+          "type": "string",
+          "description": "Display name for the cursor scheme."
+        },
+        "setFolder": {
+          "type": "string",
+          "description": "Folder name under the cursors asset directory."
+        },
+        "roles": {
+          "type": "object",
+          "description": "Mapping of cursor roles to filenames (.cur or .ani).",
+          "properties": {
+            "Arrow":        { "type": "string", "description": "Normal select cursor." },
+            "Help":         { "type": "string", "description": "Help select cursor." },
+            "AppStarting":  { "type": "string", "description": "Working in background cursor." },
+            "Wait":         { "type": "string", "description": "Busy cursor." },
+            "Crosshair":    { "type": "string", "description": "Precision select cursor." },
+            "IBeam":        { "type": "string", "description": "Text select cursor." },
+            "NWPen":        { "type": "string", "description": "Handwriting cursor." },
+            "No":           { "type": "string", "description": "Unavailable cursor." },
+            "SizeNS":       { "type": "string", "description": "Vertical resize cursor." },
+            "SizeWE":       { "type": "string", "description": "Horizontal resize cursor." },
+            "SizeNWSE":     { "type": "string", "description": "Diagonal resize (NW-SE) cursor." },
+            "SizeNESW":     { "type": "string", "description": "Diagonal resize (NE-SW) cursor." },
+            "SizeAll":      { "type": "string", "description": "Move cursor." },
+            "UpArrow":      { "type": "string", "description": "Alternate select cursor." },
+            "Hand":         { "type": "string", "description": "Link select cursor." }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "sounds": {
+      "type": ["object", "null"],
+      "description": "Custom sound scheme configuration.",
+      "properties": {
+        "schemeName": {
+          "type": "string",
+          "description": "Display name for the sound scheme."
+        },
+        "setFolder": {
+          "type": "string",
+          "description": "Folder name under the sounds asset directory."
+        },
+        "events": {
+          "type": "object",
+          "description": "Mapping of system sound event names to .wav filenames.",
+          "additionalProperties": { "type": "string" }
+        },
+        "explorerEvents": {
+          "type": "object",
+          "description": "Mapping of Explorer-specific sound event names to .wav filenames.",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "visualStyles": {
+      "type": ["object", "null"],
+      "description": "Visual style (.msstyles) configuration.",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute or environment-variable path to the .msstyles file."
+        },
+        "colorStyle": {
+          "type": "string",
+          "description": "Color style name within the visual style (e.g. 'NormalColor')."
+        },
+        "size": {
+          "type": "string",
+          "description": "Size variant name within the visual style (e.g. 'NormalSize')."
+        },
+        "colorizationColor": {
+          "type": "string",
+          "pattern": "^0x[0-9A-Fa-f]{8}$",
+          "description": "Visual style colorization in 0xAARRGGBB hex format."
+        },
+        "transparency": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = enable visual style transparency."
+        },
+        "composition": {
+          "type": "integer",
+          "enum": [0, 1],
+          "description": "1 = enable desktop composition for this visual style."
+        }
+      },
+      "additionalProperties": false
+    },
+    "desktopIcons": {
+      "type": ["object", "null"],
+      "description": "Custom desktop icon paths (.ico files).",
+      "properties": {
+        "computer": {
+          "type": "string",
+          "description": "Icon path for This PC."
+        },
+        "documents": {
+          "type": "string",
+          "description": "Icon path for Documents."
+        },
+        "network": {
+          "type": "string",
+          "description": "Icon path for Network."
+        },
+        "recycleBinFull": {
+          "type": "string",
+          "description": "Icon path for Recycle Bin (full)."
+        },
+        "recycleBinEmpty": {
+          "type": "string",
+          "description": "Icon path for Recycle Bin (empty)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "advanced": {
+      "type": ["object", "null"],
+      "description": "Advanced options: raw registry overrides and third-party tool paths.",
+      "properties": {
+        "registryOverrides": {
+          "type": "array",
+          "description": "List of arbitrary registry values to apply with the theme.",
+          "items": {
+            "type": "object",
+            "required": ["path", "name", "value", "type"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Full registry key path."
+              },
+              "name": {
+                "type": "string",
+                "description": "Registry value name."
+              },
+              "value": {
+                "description": "Registry value data (string or integer depending on type)."
+              },
+              "type": {
+                "type": "string",
+                "enum": ["DWord", "String", "ExpandString", "Binary"],
+                "description": "Registry value type."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "thirdParty": {
+          "type": "object",
+          "description": "Paths to third-party theming tools.",
+          "properties": {
+            "msstyleEditorPath": {
+              "type": "string",
+              "description": "Path to the msstyle editor executable."
+            },
+            "micaForEveryonePath": {
+              "type": "string",
+              "description": "Path to the Mica For Everyone executable."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,113 @@
+{
+  "meta": {
+    "name": "macOS Monterey",
+    "version": "1.0.0",
+    "author": "w11-theming-suite",
+    "description": "macOS Monterey-inspired theme with clean aesthetics, blue accent, and minimal UI",
+    "tags": ["macos", "monterey", "clean", "minimal", "mimicry"],
+    "basedOn": null
+  },
+  "mode": {
+    "appsUseLightTheme": 1,
+    "systemUsesLightTheme": 1
+  },
+  "accentColor": {
+    "color": "#007AFF",
+    "colorPrevalence": 0,
+    "colorPrevalenceTitleBars": 0,
+    "autoColorization": 0
+  },
+  "dwm": {
+    "enableTransparency": 1,
+    "colorizationColor": "0xC4FF7A00",
+    "colorizationColorBalance": 40,
+    "colorizationAfterglowBalance": 10,
+    "colorizationBlurBalance": 60,
+    "enableAeroPeek": 1,
+    "forceEffectMode": 0
+  },
+  "taskbar": {
+    "alignment": 1,
+    "showSearch": 0,
+    "showTaskView": 0,
+    "showWidgets": 0,
+    "showChat": 0,
+    "useOLEDTransparency": 0
+  },
+  "wallpaper": {
+    "mode": "static",
+    "path": "macos-monterey/wallpaper-01.jpg",
+    "style": 10,
+    "tileWallpaper": 0
+  },
+  "colors": {
+    "activeTitle": "236 236 236",
+    "background": "240 240 240",
+    "hilight": "0 122 255",
+    "hilightText": "255 255 255",
+    "titleText": "30 30 30",
+    "window": "255 255 255",
+    "windowText": "30 30 30",
+    "scrollbar": "230 230 230",
+    "inactiveTitle": "246 246 246",
+    "menu": "255 255 255",
+    "menuText": "30 30 30",
+    "activeBorder": "220 220 220",
+    "inactiveBorder": "230 230 230",
+    "appWorkspace": "240 240 240",
+    "buttonFace": "246 246 246",
+    "buttonShadow": "200 200 200",
+    "grayText": "142 142 147",
+    "buttonText": "30 30 30",
+    "inactiveTitleText": "142 142 147",
+    "buttonHilight": "255 255 255",
+    "buttonDkShadow": "174 174 178",
+    "buttonLight": "250 250 250",
+    "infoText": "30 30 30",
+    "infoWindow": "255 255 224",
+    "gradientActiveTitle": "236 236 236",
+    "gradientInactiveTitle": "246 246 246"
+  },
+  "cursors": {
+    "schemeName": "macOS Monterey",
+    "setFolder": "macos-monterey",
+    "roles": {
+      "Arrow": "Arrow.cur",
+      "Help": "Help.cur",
+      "AppStarting": "AppStarting.ani",
+      "Wait": "Wait.ani",
+      "Crosshair": "Crosshair.cur",
+      "IBeam": "IBeam.cur",
+      "NWPen": "NWPen.cur",
+      "No": "No.cur",
+      "SizeNS": "SizeNS.cur",
+      "SizeWE": "SizeWE.cur",
+      "SizeNWSE": "SizeNWSE.cur",
+      "SizeNESW": "SizeNESW.cur",
+      "SizeAll": "SizeAll.cur",
+      "UpArrow": "UpArrow.cur",
+      "Hand": "Hand.cur"
+    }
+  },
+  "sounds": {
+    "schemeName": "macOS Monterey",
+    "setFolder": "macos-monterey",
+    "events": {
+      "SystemAsterisk": "SystemAsterisk.wav",
+      "SystemExclamation": "SystemExclamation.wav",
+      "SystemNotification": "SystemNotification.wav",
+      "DeviceConnect": "DeviceConnect.wav",
+      "DeviceDisconnect": "DeviceDisconnect.wav",
+      "MailBeep": "MailBeep.wav"
+    }
+  },
+  "visualStyles": {
+    "path": "%SystemRoot%\\resources\\Themes\\Aero\\Aero.msstyles",
+    "colorStyle": "NormalColor",
+    "size": "NormalSize",
+    "transparency": 1,
+    "composition": 1
+  },
+  "desktopIcons": null,
+  "advanced": null
+}
