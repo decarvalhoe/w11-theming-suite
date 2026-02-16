@@ -15,7 +15,7 @@ if not exist "%OUTDIR%\" mkdir "%OUTDIR%"
 if not exist "%OBJDIR%\" mkdir "%OBJDIR%"
 
 echo [BUILD] Compiling TaskbarTAP.cpp...
-cl.exe /nologo /LD /EHsc /O2 /MD /W3 /D_CRT_SECURE_NO_WARNINGS /I"%SRCDIR%" /DWIN32 /DNDEBUG /D_WINDOWS /D_USRDLL "%SRCDIR%\TaskbarTAP.cpp" /Fe:"%OUTDIR%\TaskbarTAP_new.dll" /Fo:"%OBJDIR%\\" /link /DEF:"%SRCDIR%\TaskbarTAP.def" /NOLOGO /DLL /MACHINE:X64 ole32.lib oleaut32.lib uuid.lib user32.lib shlwapi.lib
+cl.exe /nologo /LD /EHsc /O2 /MD /W3 /D_CRT_SECURE_NO_WARNINGS /I"%SRCDIR%" /DWIN32 /DNDEBUG /D_WINDOWS /D_USRDLL "%SRCDIR%\TaskbarTAP.cpp" /Fe:"%OUTDIR%\TaskbarTAP_new.dll" /Fo:"%OBJDIR%\\" /link /DEF:"%SRCDIR%\TaskbarTAP.def" /NOLOGO /DLL /MACHINE:X64 ole32.lib oleaut32.lib uuid.lib user32.lib shlwapi.lib WindowsApp.lib
 if errorlevel 1 goto :fail
 
 REM Try to replace existing DLL (may be locked if injected)

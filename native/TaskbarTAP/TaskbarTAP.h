@@ -88,6 +88,9 @@ public:
     void ApplyAppearance(TaskbarAppearance appearance);
 
 private:
+    // Set Fill/Opacity on a Rectangle via GetIInspectableFromHandle + GetPropertyValuesChain
+    void ApplyToRectangle(InstanceHandle handle, TaskbarAppearance appearance, bool isStroke);
+    void SetRectangleOpacity(IInspectable* pElement, double opacity);
     long m_refCount;
     IXamlDiagnostics* m_pDiag;
     IVisualTreeService3* m_pService;

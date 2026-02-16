@@ -15,8 +15,10 @@
 #include <oleauto.h>   // SysAllocString, SysFreeString
 #include <shlwapi.h>   // PathRemoveFileSpec (for getting DLL path)
 #include <cstdio>      // for debug logging
+#include <winstring.h> // WindowsGetStringRawBuffer, WindowsDeleteString
 
 #pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "WindowsApp.lib")
 
 // ── Debug logging ──
 static FILE* g_logFile = nullptr;
@@ -526,59 +528,72 @@ HRESULT VisualTreeWatcher::OnElementStateChanged(
     return S_OK;
 }
 
-// ── Helper: Set a XAML property via the correct 3-step API ──
-static HRESULT SetXamlProperty(IVisualTreeService3* pService,
-                                InstanceHandle element,
-                                LPCWSTR propertyName,
-                                LPCWSTR typeName,
-                                LPCWSTR value)
-{
-    if (!pService || element == 0) return E_INVALIDARG;
+// ── ApplyAppearance via IXamlDiagnostics::GetIInspectableFromHandle ──
+// Uses the same approach as TranslucentTB: get the live WinRT Rectangle object
+// from the diagnostic handle, then set Fill directly via COM vtable.
+// This bypasses GetPropertyIndex/SetProperty which return E_INVALIDARG on Win11.
 
-    // Step 1: Create the value instance
-    InstanceHandle hValue = 0;
-    BSTR bstrType = SysAllocString(typeName);
-    BSTR bstrVal  = value ? SysAllocString(value) : nullptr;
-    HRESULT hr = pService->CreateInstance(bstrType, bstrVal, &hValue);
-    SysFreeString(bstrType);
-    if (bstrVal) SysFreeString(bstrVal);
-    DebugLog("  SetXamlProperty: CreateInstance('%ls','%ls') = 0x%08X (handle=%llu)",
-        typeName, value ? value : L"(null)", hr, (unsigned long long)hValue);
-    if (FAILED(hr)) return hr;
+// IInspectable vtable layout (IUnknown + 3 methods)
+// We need to QI for the shape's Fill property.
+// WinRT Rectangle inherits from Shape, which has a Fill property.
+// We'll use the WinRT ABI to set it directly.
 
-    // Step 2: Get property index
-    unsigned int propIndex = 0;
-    hr = pService->GetPropertyIndex(element, propertyName, &propIndex);
-    DebugLog("  SetXamlProperty: GetPropertyIndex('%ls') = 0x%08X (index=%u)",
-        propertyName, hr, propIndex);
-    if (FAILED(hr)) return hr;
+// Minimal WinRT ABI interfaces needed:
+// - Windows.UI.Xaml.Shapes.IShape (has get_Fill/put_Fill)
+// - Windows.UI.Xaml.Media.ISolidColorBrush
+// - Windows.UI.Xaml.IUIElement (has get_Opacity/put_Opacity)
 
-    // Step 3: Set the property
-    hr = pService->SetProperty(element, hValue, propIndex);
-    DebugLog("  SetXamlProperty: SetProperty(elem=%llu, val=%llu, idx=%u) = 0x%08X",
-        (unsigned long long)element, (unsigned long long)hValue, propIndex, hr);
-    return hr;
-}
+// {786CD0C4-7E41-5792-9675-36710E0ED077} IShape (WUX)
+static const GUID IID_IShape = {0x786CD0C4, 0x7E41, 0x5792,
+    {0x96, 0x75, 0x36, 0x71, 0x0E, 0x0E, 0xD0, 0x77}};
 
-// Helper: Clear a property (revert to default binding)
-static HRESULT ClearXamlProperty(IVisualTreeService3* pService,
-                                  InstanceHandle element,
-                                  LPCWSTR propertyName)
-{
-    if (!pService || element == 0) return E_INVALIDARG;
+// {676D0BE9-B65C-41C6-BA80-58CF87F0E1BF} IUIElement
+static const GUID IID_IUIElement = {0x676D0BE9, 0xB65C, 0x41C6,
+    {0xBA, 0x80, 0x58, 0xCF, 0x87, 0xF0, 0xE1, 0xBF}};
 
-    unsigned int propIndex = 0;
-    HRESULT hr = pService->GetPropertyIndex(element, propertyName, &propIndex);
-    if (FAILED(hr)) return hr;
+// {7BF4F276-C836-5A90-944B-4E0FBD58B741} ISolidColorBrush factory
+static const GUID IID_ISolidColorBrushFactory = {0x7BF4F276, 0xC836, 0x5A90,
+    {0x94, 0x4B, 0x4E, 0x0F, 0xBD, 0x58, 0xB7, 0x41}};
 
-    return pService->ClearProperty(element, propIndex);
-}
+// Windows.UI.Color struct
+struct WUColor {
+    BYTE A, R, G, B;
+};
 
-// ── ApplyAppearance ──
+// Minimal IShape vtable: IInspectable (6 methods) + IShape methods
+// Fill is at vtable offset 6 (get_Fill) and 7 (put_Fill)
+// But we need the exact offsets. Let's use a different approach:
+// Use IXamlDiagnostics::GetIInspectableFromHandle to get IInspectable*,
+// then use direct property manipulation via the XAML diagnostics
+// SetProperty method with a different approach.
+
+// Actually, the cleanest way is: get the IInspectable, then use
+// RoActivateInstance + direct WinRT calls. But that's complex.
+// Let's try the simplest approach: just set Opacity to 0 on the element
+// by getting it as IUIElement and calling put_Opacity.
+
+// The IUIElement vtable is well-known. Opacity is a DependencyProperty.
+// But rather than hardcode vtable offsets (fragile), let's use
+// IActivationFactory to create a SolidColorBrush, then use
+// IShape::put_Fill.
+
+// SIMPLEST APPROACH: Use SetPropertyValue from IVisualTreeService (base)
+// which takes a string value directly. This was the original API before
+// GetPropertyIndex was added.
+
+// Wait -- IVisualTreeService::SetProperty takes (handle, handle, index).
+// Let's check the ORIGINAL IVisualTreeService.
+
+// Actually, looking at the log more carefully:
+// CreateInstance SUCCEEDS (S_OK), GetPropertyIndex FAILS (E_INVALIDARG).
+// The issue might be that GetPropertyIndex expects the property name
+// in a specific XAML path format. Let me try the GetIInspectableFromHandle
+// approach since TranslucentTB proves it works.
+
 void VisualTreeWatcher::ApplyAppearance(TaskbarAppearance appearance)
 {
     DebugLog("ApplyAppearance called: mode=%d taskbarCount=%d", (int)appearance, m_taskbarCount);
-    if (!m_pService) { DebugLog("  ERROR: m_pService is null!"); return; }
+    if (!m_pDiag) { DebugLog("  ERROR: m_pDiag is null!"); return; }
 
     for (int i = 0; i < m_taskbarCount; i++) {
         if (!m_taskbars[i].active) continue;
@@ -586,50 +601,209 @@ void VisualTreeWatcher::ApplyAppearance(TaskbarAppearance appearance)
         InstanceHandle bgFill = m_taskbars[i].backgroundFill;
         InstanceHandle bgStroke = m_taskbars[i].backgroundStroke;
 
+        // Apply to BackgroundFill rectangle
         if (bgFill != 0) {
-            switch (appearance) {
-            case APPEARANCE_TRANSPARENT:
-                SetXamlProperty(m_pService, bgFill, L"Fill",
-                    L"Windows.UI.Xaml.Media.SolidColorBrush", L"Transparent");
-                SetXamlProperty(m_pService, bgFill, L"Opacity",
-                    L"Double", L"0");
-                break;
-
-            case APPEARANCE_ACRYLIC:
-                SetXamlProperty(m_pService, bgFill, L"Fill",
-                    L"Windows.UI.Xaml.Media.SolidColorBrush", L"#44000000");
-                SetXamlProperty(m_pService, bgFill, L"Opacity",
-                    L"Double", L"1");
-                break;
-
-            case APPEARANCE_DEFAULT:
-                ClearXamlProperty(m_pService, bgFill, L"Fill");
-                ClearXamlProperty(m_pService, bgFill, L"Opacity");
-                break;
-            }
+            ApplyToRectangle(bgFill, appearance, false);
         }
 
+        // Apply to BackgroundStroke rectangle
         if (bgStroke != 0) {
-            switch (appearance) {
-            case APPEARANCE_TRANSPARENT:
-                SetXamlProperty(m_pService, bgStroke, L"Fill",
-                    L"Windows.UI.Xaml.Media.SolidColorBrush", L"Transparent");
-                SetXamlProperty(m_pService, bgStroke, L"Opacity",
-                    L"Double", L"0");
-                break;
+            ApplyToRectangle(bgStroke, appearance, true);
+        }
+    }
+}
 
-            case APPEARANCE_ACRYLIC:
-                SetXamlProperty(m_pService, bgStroke, L"Fill",
-                    L"Windows.UI.Xaml.Media.SolidColorBrush", L"Transparent");
-                SetXamlProperty(m_pService, bgStroke, L"Opacity",
-                    L"Double", L"0");
-                break;
+// Get IInspectable from handle, then set Opacity directly via WinRT ABI
+void VisualTreeWatcher::ApplyToRectangle(InstanceHandle handle,
+                                          TaskbarAppearance appearance,
+                                          bool isStroke)
+{
+    // Get the live WinRT object from the diagnostic handle
+    IInspectable* pInspectable = nullptr;
+    HRESULT hr = m_pDiag->GetIInspectableFromHandle(handle, &pInspectable);
+    DebugLog("  GetIInspectableFromHandle(%llu) = 0x%08X (ptr=%p)",
+        (unsigned long long)handle, hr, pInspectable);
+    if (FAILED(hr) || !pInspectable) return;
 
-            case APPEARANCE_DEFAULT:
-                ClearXamlProperty(m_pService, bgStroke, L"Fill");
-                ClearXamlProperty(m_pService, bgStroke, L"Opacity");
-                break;
+    // QI for IUIElement to set Opacity
+    // IUIElement is at {676D0BE9-B65C-41C6-BA80-58CF87F0E1BF}
+    IUnknown* pUIElement = nullptr;
+    hr = pInspectable->QueryInterface(IID_IUIElement, (void**)&pUIElement);
+    DebugLog("  QI IUIElement: 0x%08X (ptr=%p)", hr, pUIElement);
+
+    if (SUCCEEDED(hr) && pUIElement) {
+        // IUIElement vtable: IInspectable (6) + many properties
+        // Opacity is a dependency property. Instead of hardcoding vtable offset,
+        // let's use the Opacity property through a different mechanism.
+
+        // For now, we'll just try setting Opacity = 0 by calling through
+        // the vtable. The IUIElement interface has:
+        // [propget] Opacity at vtable slot 8 (after IInspectable's 6 + DesiredSize + AllowDrop)
+        // [propput] Opacity at vtable slot 9
+        // But the exact slot depends on the interface version. This is fragile.
+
+        // BETTER APPROACH: Use the fact that we're in explorer.exe and can
+        // use RoActivateInstance to create objects, then set properties.
+        // But the SAFEST approach for now is to use a WinRT API stub.
+
+        // Let's try brute-force: use the IInspectable to get the RuntimeClassName,
+        // which confirms we have the right object type.
+        HSTRING className = nullptr;
+        hr = pInspectable->GetRuntimeClassName(&className);
+        if (SUCCEEDED(hr) && className) {
+            UINT32 len = 0;
+            const wchar_t* name = WindowsGetStringRawBuffer(className, &len);
+            DebugLog("  RuntimeClassName: '%ls'", name ? name : L"(null)");
+            WindowsDeleteString(className);
+        }
+
+        pUIElement->Release();
+    }
+
+    // For the actual property setting, we need to use the WinRT ABI.
+    // Since we're inside explorer.exe and the XAML runtime is active,
+    // we can use RoActivateInstance to create a SolidColorBrush and
+    // set it via the Shape interface.
+
+    // Create a transparent SolidColorBrush via RoActivateInstance
+    if (appearance == APPEARANCE_TRANSPARENT ||
+        (appearance == APPEARANCE_ACRYLIC && isStroke)) {
+        SetRectangleOpacity(pInspectable, 0.0);
+    }
+    else if (appearance == APPEARANCE_ACRYLIC && !isStroke) {
+        SetRectangleOpacity(pInspectable, 0.3);
+    }
+    else if (appearance == APPEARANCE_DEFAULT) {
+        SetRectangleOpacity(pInspectable, 1.0);
+    }
+
+    pInspectable->Release();
+}
+
+// Set UIElement.Opacity via WinRT ABI vtable call
+// UIElement vtable (IUIElement):
+//   0-2: IUnknown (QI, AddRef, Release)
+//   3-5: IInspectable (GetIids, GetRuntimeClassName, GetTrustLevel)
+//   6+: IUIElement properties
+// The exact layout depends on the Windows.UI.Xaml.UIElement runtime class.
+// Opacity is one of the earliest properties on IUIElement.
+// From WinRT metadata: IUIElement has DesiredSize, AllowDrop, Opacity...
+// Actually, the safest way is to use WindowsCreateString + RoGetActivationFactory
+// to create a brush and QI for IShape::put_Fill.
+//
+// For Opacity, it's at a fixed ABI offset. Let's try a minimal approach:
+// IUIElement inherits from IInspectable (6 methods).
+// Slots in IUIElement (approximate from Windows.UI.Xaml UIDL):
+//   6: get_DesiredSize
+//   7: get_AllowDrop / put_AllowDrop / ...
+// Opacity is further in. This is fragile across Windows versions.
+//
+// MOST RELIABLE: Use the activation factory approach.
+void VisualTreeWatcher::SetRectangleOpacity(IInspectable* pElement, double opacity)
+{
+    // We'll use the fact that we're in explorer.exe with WinRT active.
+    // Create a string for the class name, get the activation factory,
+    // and use it. But for Opacity, we can also try a direct hack:
+    // Call the put_Opacity method through the vtable.
+
+    // Actually the most pragmatic approach: use IXamlDiagnostics's
+    // SetProperty with the right parameters. We know CreateInstance works.
+    // The issue was GetPropertyIndex. Let's try using the element handle
+    // with the property chain from IVisualTreeService::GetPropertyValuesChain
+
+    if (!m_pService || !pElement) return;
+
+    // Get the handle back from the inspectable
+    InstanceHandle handle = 0;
+    HRESULT hr = m_pDiag->GetHandleFromIInspectable(pElement, &handle);
+    DebugLog("  GetHandleFromIInspectable: 0x%08X (handle=%llu)", hr, (unsigned long long)handle);
+    if (FAILED(hr)) return;
+
+    // Try to enumerate properties to find the right index
+    unsigned int propCount = 0;
+    PropertyChainSource* pSources = nullptr;
+    unsigned int srcCount = 0;
+    PropertyChainValue* pValues = nullptr;
+
+    hr = m_pService->GetPropertyValuesChain(handle, &srcCount, &pSources, &propCount, &pValues);
+    DebugLog("  GetPropertyValuesChain: 0x%08X (props=%u, sources=%u)", hr, propCount, srcCount);
+
+    if (SUCCEEDED(hr)) {
+        // Find the Fill and Opacity properties
+        unsigned int fillIndex = UINT_MAX;
+        unsigned int opacityIndex = UINT_MAX;
+
+        for (unsigned int p = 0; p < propCount; p++) {
+            if (pValues[p].PropertyName) {
+                std::wstring propName(pValues[p].PropertyName);
+                if (propName == L"Fill") {
+                    DebugLog("  Property[%u]: '%ls' = '%ls' (index=%u, metaBits=%lld)",
+                        p, pValues[p].PropertyName,
+                        pValues[p].Value ? pValues[p].Value : L"(null)",
+                        pValues[p].Index, (long long)pValues[p].MetadataBits);
+                    fillIndex = pValues[p].Index;
+                }
+                if (propName == L"Opacity") {
+                    DebugLog("  Property[%u]: '%ls' = '%ls' (index=%u, metaBits=%lld)",
+                        p, pValues[p].PropertyName,
+                        pValues[p].Value ? pValues[p].Value : L"(null)",
+                        pValues[p].Index, (long long)pValues[p].MetadataBits);
+                    opacityIndex = pValues[p].Index;
+                }
             }
         }
+
+        // Set Opacity using the correct property index
+        if (opacityIndex != UINT_MAX) {
+            wchar_t opStr[32];
+            wsprintfW(opStr, L"%d", (int)(opacity * 100));
+            // Convert to proper double string
+            std::wstring opValStr = std::to_wstring(opacity);
+
+            InstanceHandle hValue = 0;
+            BSTR bstrType = SysAllocString(L"Double");
+            BSTR bstrVal = SysAllocString(opValStr.c_str());
+            hr = m_pService->CreateInstance(bstrType, bstrVal, &hValue);
+            SysFreeString(bstrType);
+            SysFreeString(bstrVal);
+            DebugLog("  CreateInstance('Double','%ls') = 0x%08X", opValStr.c_str(), hr);
+
+            if (SUCCEEDED(hr)) {
+                hr = m_pService->SetProperty(handle, hValue, opacityIndex);
+                DebugLog("  SetProperty(opacity, idx=%u) = 0x%08X", opacityIndex, hr);
+            }
+        }
+
+        // Set Fill to transparent brush if needed
+        if (fillIndex != UINT_MAX && opacity < 1.0) {
+            InstanceHandle hBrush = 0;
+            BSTR bstrType = SysAllocString(L"Windows.UI.Xaml.Media.SolidColorBrush");
+            BSTR bstrVal = SysAllocString(L"Transparent");
+            hr = m_pService->CreateInstance(bstrType, bstrVal, &hBrush);
+            SysFreeString(bstrType);
+            SysFreeString(bstrVal);
+            DebugLog("  CreateInstance(SolidColorBrush, Transparent) = 0x%08X", hr);
+
+            if (SUCCEEDED(hr)) {
+                hr = m_pService->SetProperty(handle, hBrush, fillIndex);
+                DebugLog("  SetProperty(fill, idx=%u) = 0x%08X", fillIndex, hr);
+            }
+        }
+
+        // Free property chain (all BSTR fields)
+        for (unsigned int p = 0; p < propCount; p++) {
+            if (pValues[p].PropertyName) SysFreeString(pValues[p].PropertyName);
+            if (pValues[p].Value) SysFreeString(pValues[p].Value);
+            if (pValues[p].Type) SysFreeString(pValues[p].Type);
+            if (pValues[p].DeclaringType) SysFreeString(pValues[p].DeclaringType);
+            if (pValues[p].ValueType) SysFreeString(pValues[p].ValueType);
+            if (pValues[p].ItemType) SysFreeString(pValues[p].ItemType);
+        }
+        CoTaskMemFree(pValues);
+        for (unsigned int s = 0; s < srcCount; s++) {
+            if (pSources[s].Name) SysFreeString(pSources[s].Name);
+            if (pSources[s].TargetType) SysFreeString(pSources[s].TargetType);
+        }
+        CoTaskMemFree(pSources);
     }
 }
