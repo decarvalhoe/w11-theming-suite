@@ -31,3 +31,10 @@ desktop.ini
 .idea/
 *.swp
 *.swo
+
+# Electron app
+app/node_modules/
+app/dist/
+
+# Claude Code
+.claude/

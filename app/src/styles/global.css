@@ -1,0 +1,292 @@
+/* ================================================================
+   W11 Theme Configurator — Global Styles (Dark UI)
+   ================================================================ */
+
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1e1e1e;
+  --bg-hover: #252525;
+  --bg-active: #2a2a2a;
+
+  --border-color: #2a2a2a;
+  --border-focus: #0078d4;
+
+  --text-primary: #e4e4e4;
+  --text-secondary: #999;
+  --text-muted: #666;
+
+  --accent: #0078d4;
+  --accent-hover: #1a86d8;
+  --accent-active: #006cbd;
+
+  --success: #4caf50;
+  --warning: #ff9800;
+  --error: #f44336;
+
+  --sidebar-width: 240px;
+  --topbar-height: 52px;
+  --statusbar-height: 32px;
+
+  --radius: 6px;
+  --radius-sm: 4px;
+
+  --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Code', 'Consolas', monospace;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #444; }
+
+/* ---- App Layout ---- */
+.app-layout {
+  display: grid;
+  grid-template-rows: var(--topbar-height) 1fr var(--statusbar-height);
+  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-areas:
+    "topbar  topbar"
+    "sidebar content"
+    "status  status";
+  height: 100vh;
+}
+
+/* ---- TopBar ---- */
+.topbar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  -webkit-app-region: drag;
+}
+.topbar__left, .topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  -webkit-app-region: no-drag;
+}
+.topbar__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  -webkit-app-region: drag;
+}
+.topbar__dirty {
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* ---- Sidebar ---- */
+.sidebar {
+  grid-area: sidebar;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+  transition: all 0.12s;
+  border-left: 3px solid transparent;
+}
+.sidebar__item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.sidebar__item--active {
+  background: var(--bg-active);
+  color: var(--accent);
+  border-left-color: var(--accent);
+  font-weight: 500;
+}
+.sidebar__icon {
+  width: 18px;
+  text-align: center;
+  font-size: 14px;
+}
+.sidebar__separator {
+  height: 1px;
+  background: var(--border-color);
+  margin: 6px 12px;
+}
+
+/* ---- Content ---- */
+.content {
+  grid-area: content;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
+.content__header {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.content__desc {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+
+/* ---- StatusBar ---- */
+.statusbar {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+}
+.statusbar__dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.statusbar__dot--connected { background: var(--success); }
+.statusbar__dot--disconnected { background: var(--error); }
+.statusbar__dot--connecting { background: var(--warning); animation: pulse 1.5s infinite; }
+.statusbar__dot--error { background: var(--error); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ---- Buttons ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.btn:hover { background: var(--bg-hover); }
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn--primary:hover { background: var(--accent-hover); }
+.btn--danger { border-color: var(--error); color: var(--error); }
+.btn--danger:hover { background: var(--error); color: #fff; }
+
+/* ---- Section groups ---- */
+.setting-group {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+.setting-group__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 14px;
+}
+
+/* ---- Setting Row ---- */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  min-height: 38px;
+}
+.setting-row + .setting-row {
+  border-top: 1px solid var(--border-color);
+}
+.setting-row__label {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.setting-row__desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.setting-row__control {
+  flex-shrink: 0;
+  margin-left: 16px;
+}
+
+/* ---- Color grid (for Win32Colors) ---- */
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+.color-grid__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+.color-grid__label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Palette row ---- */
+.palette-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+/* ---- Toggle (semantic classes for Toggle.jsx — styles are inline but classes exist for targeting) ---- */
+.toggle { outline: none; }
+.toggle:focus-visible { box-shadow: 0 0 0 2px var(--border-focus); border-radius: 11px; }
+.toggle--disabled { opacity: 0.5; }
+.toggle--on { }
