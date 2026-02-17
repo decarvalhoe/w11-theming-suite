@@ -97,6 +97,10 @@ Export-ModuleMember -Function @(
     'Stop-W11BackdropWatcher',
     'Register-W11BackdropWatcherStartup',
     'Unregister-W11BackdropWatcherStartup',
+    # NativeTaskbarTransparency (Unified Persistence)
+    'Register-W11TransparencyPersistence',
+    'Unregister-W11TransparencyPersistence',
+    'Get-W11TransparencyPersistence',
     # ThemeOrchestrator
     'Install-W11Theme',
     'Uninstall-W11Theme',

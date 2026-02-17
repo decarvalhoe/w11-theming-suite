@@ -2625,6 +2625,293 @@ function Unregister-W11BackdropWatcherStartup {
     }
 }
 
+# ===========================================================================
+# Unified Transparency Persistence
+# ===========================================================================
+
+function Register-W11TransparencyPersistence {
+    <#
+    .SYNOPSIS
+        Registers a unified persistence script that maintains ALL transparency
+        effects across login sessions and process restarts.
+    .DESCRIPTION
+        Creates a JSON config file with the desired transparency settings, then
+        registers a hidden PowerShell background process (via VBS wrapper + Run
+        key) that:
+        - Applies taskbar SWCA transparency
+        - Injects TAP into taskbar, Start Menu, and Action Center
+        - Starts BackdropWatcher for app windows and context menus
+        - Monitors WMI process creation events to re-inject when target
+          processes restart (explorer.exe, StartMenuExperienceHost.exe,
+          ShellExperienceHost.exe)
+
+        This replaces individual startup registrations (Register-W11TaskbarTransparencyStartup,
+        Register-W11BackdropWatcherStartup) with a single unified solution.
+    .PARAMETER TaskbarStyle
+        SWCA taskbar style: clear, blur, acrylic, opaque, normal. Default: clear.
+    .PARAMETER TaskbarColor
+        ARGB hex color for taskbar. Default: auto from style.
+    .PARAMETER TaskbarAllMonitors
+        Apply taskbar transparency to all monitors.
+    .PARAMETER TaskbarTAP
+        Also inject TAP DLL for XAML-level taskbar transparency.
+    .PARAMETER TaskbarTAPMode
+        TAP mode: Transparent or Acrylic. Default: Transparent.
+    .PARAMETER StartMenu
+        Enable Start Menu transparency.
+    .PARAMETER StartMenuMode
+        Start Menu mode: Transparent or Acrylic. Default: Transparent.
+    .PARAMETER ActionCenter
+        Enable Action Center + Notifications transparency.
+    .PARAMETER ActionCenterMode
+        Action Center mode: Transparent or Acrylic. Default: Transparent.
+    .PARAMETER AppWindows
+        Enable persistent backdrop on all app windows.
+    .PARAMETER AppWindowsBackdrop
+        App windows backdrop type: mica, acrylic, tabbed. Default: mica.
+    .PARAMETER AppWindowsDarkMode
+        Force dark mode on app windows.
+    .PARAMETER ContextMenus
+        Enable context menu transparency (requires -AppWindows).
+    .EXAMPLE
+        Register-W11TransparencyPersistence -TaskbarStyle clear -StartMenu -ActionCenter -AppWindows -ContextMenus
+    .EXAMPLE
+        Register-W11TransparencyPersistence -TaskbarTAP -StartMenu -ActionCenter -AppWindows -AppWindowsBackdrop acrylic -AppWindowsDarkMode -ContextMenus
+    #>
+    [CmdletBinding()]
+    param(
+        [ValidateSet('clear', 'blur', 'acrylic', 'opaque', 'normal')]
+        [string]$TaskbarStyle = 'clear',
+
+        [ValidatePattern('^#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$')]
+        [string]$TaskbarColor,
+
+        [switch]$TaskbarAllMonitors,
+
+        [switch]$TaskbarTAP,
+
+        [ValidateSet('Transparent', 'Acrylic')]
+        [string]$TaskbarTAPMode = 'Transparent',
+
+        [switch]$StartMenu,
+
+        [ValidateSet('Transparent', 'Acrylic')]
+        [string]$StartMenuMode = 'Transparent',
+
+        [switch]$ActionCenter,
+
+        [ValidateSet('Transparent', 'Acrylic')]
+        [string]$ActionCenterMode = 'Transparent',
+
+        [switch]$AppWindows,
+
+        [ValidateSet('mica', 'acrylic', 'tabbed')]
+        [string]$AppWindowsBackdrop = 'mica',
+
+        [switch]$AppWindowsDarkMode,
+
+        [switch]$ContextMenus
+    )
+
+    try {
+        $persistDir = Join-Path $env:LOCALAPPDATA 'w11-theming-suite\Persistence'
+        if (-not (Test-Path $persistDir)) {
+            New-Item -Path $persistDir -ItemType Directory -Force | Out-Null
+        }
+
+        # Resolve default taskbar color
+        if (-not $TaskbarColor) {
+            $TaskbarColor = '#' + $script:StyleMap[$TaskbarStyle].DefaultColor
+        }
+
+        # Build config JSON
+        $configObj = @{
+            modulePath = (Split-Path $PSScriptRoot -Parent)
+            taskbar = @{
+                enabled     = $true
+                style       = $TaskbarStyle
+                color       = $TaskbarColor
+                allMonitors = $TaskbarAllMonitors.IsPresent
+            }
+            taskbarTAP = @{
+                enabled = $TaskbarTAP.IsPresent
+                mode    = $TaskbarTAPMode
+            }
+            startMenu = @{
+                enabled = $StartMenu.IsPresent
+                mode    = $StartMenuMode
+            }
+            actionCenter = @{
+                enabled = $ActionCenter.IsPresent
+                mode    = $ActionCenterMode
+            }
+            appWindows = @{
+                enabled  = $AppWindows.IsPresent
+                backdrop = $AppWindowsBackdrop
+                darkMode = $AppWindowsDarkMode.IsPresent
+            }
+            contextMenus = @{
+                enabled = $ContextMenus.IsPresent
+            }
+        }
+
+        $configPath = Join-Path $persistDir 'transparency-config.json'
+        $configObj | ConvertTo-Json -Depth 5 | Set-Content -Path $configPath -Encoding UTF8 -Force
+
+        # Locate the Watch script
+        $projectRoot = Get-W11ProjectRoot
+        $watchScript = Join-Path $projectRoot 'scripts\Watch-W11Transparency.ps1'
+        if (-not (Test-Path $watchScript)) {
+            Write-Error "Watch script not found: $watchScript"
+            return
+        }
+
+        # VBS wrapper to run hidden
+        $vbsContent = @"
+' Auto-generated by w11-theming-suite -- Unified Transparency Persistence
+' Launches Watch-W11Transparency.ps1 hidden with admin elevation.
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & "$watchScript" & """ -ConfigPath """ & "$configPath" & """", 0, False
+"@
+
+        $vbsPath = Join-Path $persistDir 'watch-transparency.vbs'
+        Set-Content -Path $vbsPath -Value $vbsContent -Encoding ASCII -Force
+
+        # Register in HKCU Run key
+        $runPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        if (-not (Test-Path $runPath)) {
+            New-Item -Path $runPath -Force | Out-Null
+        }
+
+        $wscriptCmd = "wscript.exe `"$vbsPath`""
+        Set-ItemProperty -Path $runPath -Name 'W11TransparencyPersistence' -Value $wscriptCmd
+
+        # Summary
+        $features = @()
+        if ($true) { $features += "taskbar($TaskbarStyle)" }
+        if ($TaskbarTAP) { $features += "taskbarTAP($TaskbarTAPMode)" }
+        if ($StartMenu) { $features += "startMenu($StartMenuMode)" }
+        if ($ActionCenter) { $features += "actionCenter($ActionCenterMode)" }
+        if ($AppWindows) { $features += "appWindows($AppWindowsBackdrop)" }
+        if ($ContextMenus) { $features += 'contextMenus' }
+
+        Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+        Write-Host "Unified persistence registered: $($features -join ', ')"
+        Write-Host '        ' -NoNewline
+        Write-Host "Config: $configPath" -ForegroundColor DarkGray
+        Write-Host '        ' -NoNewline
+        Write-Host "Auto re-injection on process restart enabled via WMI event watcher." -ForegroundColor DarkGray
+    }
+    catch {
+        Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
+        Write-Host "Failed to register persistence: $_"
+    }
+}
+
+function Unregister-W11TransparencyPersistence {
+    <#
+    .SYNOPSIS
+        Removes the unified transparency persistence registration.
+    .DESCRIPTION
+        Removes the HKCU Run key entry and deletes the persistence scripts
+        and config. Does NOT stop currently running transparency effects.
+    .EXAMPLE
+        Unregister-W11TransparencyPersistence
+    #>
+    [CmdletBinding()]
+    param()
+
+    try {
+        # Remove Run key
+        $runPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        $runProps = Get-ItemProperty -Path $runPath -ErrorAction SilentlyContinue
+        if ($runProps -and $runProps.PSObject.Properties['W11TransparencyPersistence']) {
+            Remove-ItemProperty -Path $runPath -Name 'W11TransparencyPersistence' -ErrorAction SilentlyContinue
+        }
+
+        # Remove persistence directory
+        $persistDir = Join-Path $env:LOCALAPPDATA 'w11-theming-suite\Persistence'
+        if (Test-Path $persistDir) {
+            Remove-Item -Path $persistDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+        Write-Host 'Unified transparency persistence removed.'
+    }
+    catch {
+        Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
+        Write-Host "Failed to unregister persistence: $_"
+    }
+}
+
+function Get-W11TransparencyPersistence {
+    <#
+    .SYNOPSIS
+        Shows the current persistence configuration.
+    .DESCRIPTION
+        Reads the saved transparency persistence config and reports what
+        features are registered to run at login.
+    .EXAMPLE
+        Get-W11TransparencyPersistence
+    #>
+    [CmdletBinding()]
+    param()
+
+    $configPath = Join-Path $env:LOCALAPPDATA 'w11-theming-suite\Persistence\transparency-config.json'
+
+    # Check Run key
+    $runPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    $runProps = Get-ItemProperty -Path $runPath -ErrorAction SilentlyContinue
+    $registered = $runProps -and $runProps.PSObject.Properties['W11TransparencyPersistence']
+
+    if (-not $registered) {
+        Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
+        Write-Host 'No unified transparency persistence is registered.'
+        Write-Host '        ' -NoNewline
+        Write-Host 'Use Register-W11TransparencyPersistence to set up.' -ForegroundColor DarkGray
+        return $null
+    }
+
+    if (-not (Test-Path $configPath)) {
+        Write-Host '[WARN]  ' -ForegroundColor Yellow -NoNewline
+        Write-Host 'Persistence is registered but config file is missing.'
+        return $null
+    }
+
+    $config = Get-Content $configPath -Raw | ConvertFrom-Json
+
+    Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
+    Write-Host 'Unified transparency persistence is registered.'
+
+    $features = @()
+    if ($config.taskbar.enabled) {
+        $features += "  Taskbar: $($config.taskbar.style) ($($config.taskbar.color))"
+    }
+    if ($config.taskbarTAP.enabled) {
+        $features += "  Taskbar TAP: $($config.taskbarTAP.mode)"
+    }
+    if ($config.startMenu.enabled) {
+        $features += "  Start Menu: $($config.startMenu.mode)"
+    }
+    if ($config.actionCenter.enabled) {
+        $features += "  Action Center: $($config.actionCenter.mode)"
+    }
+    if ($config.appWindows.enabled) {
+        $dark = if ($config.appWindows.darkMode) { ' + dark mode' } else { '' }
+        $features += "  App Windows: $($config.appWindows.backdrop)$dark"
+    }
+    if ($config.contextMenus.enabled) {
+        $features += "  Context Menus: enabled"
+    }
+
+    foreach ($f in $features) {
+        Write-Host '        ' -NoNewline
+        Write-Host $f -ForegroundColor White
+    }
+
+    return $config
+}
+
 # ---------------------------------------------------------------------------
 # Module exports
 # ---------------------------------------------------------------------------
@@ -2650,5 +2937,8 @@ Export-ModuleMember -Function @(
     'Start-W11BackdropWatcher',
     'Stop-W11BackdropWatcher',
     'Register-W11BackdropWatcherStartup',
-    'Unregister-W11BackdropWatcherStartup'
+    'Unregister-W11BackdropWatcherStartup',
+    'Register-W11TransparencyPersistence',
+    'Unregister-W11TransparencyPersistence',
+    'Get-W11TransparencyPersistence'
 )
