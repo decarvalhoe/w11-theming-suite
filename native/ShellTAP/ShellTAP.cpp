@@ -268,11 +268,16 @@ BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD reason, LPVOID)
         g_hModule = hInstance;
         DisableThreadLibraryCalls(hInstance);
 
-        // Determine TargetId from environment variable set by PowerShell injector
-        // Falls back to "Unknown" if not set
-        wchar_t envBuf[64] = {0};
-        if (GetEnvironmentVariableW(L"W11_SHELLTAP_TARGET", envBuf, 64) > 0) {
-            wcscpy_s(g_targetId, envBuf);
+        // Read TargetId from shared memory (written by PowerShell before injection)
+        // Fixed name: "W11ThemeSuite_ShellTAP_Init" contains the target ID string
+        HANDLE hInitMap = OpenFileMappingW(FILE_MAP_READ, FALSE, L"W11ThemeSuite_ShellTAP_Init");
+        if (hInitMap) {
+            void* pView = MapViewOfFile(hInitMap, FILE_MAP_READ, 0, 0, 64 * sizeof(wchar_t));
+            if (pView) {
+                wcsncpy_s(g_targetId, (const wchar_t*)pView, 63);
+                UnmapViewOfFile(pView);
+            }
+            CloseHandle(hInitMap);
         }
 
         // Read configuration from shared memory

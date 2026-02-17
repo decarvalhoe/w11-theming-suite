@@ -83,6 +83,9 @@ Export-ModuleMember -Function @(
     # NativeTaskbarTransparency (ShellTAP - generic XAML injection)
     'Invoke-ShellTAPInject',
     'Set-ShellTAPMode',
+    # NativeTaskbarTransparency (Start Menu transparency)
+    'Invoke-StartMenuDiscovery',
+    'Invoke-StartMenuTransparency',
     # NativeTaskbarTransparency (Backdrop Watcher)
     'Start-W11BackdropWatcher',
     'Stop-W11BackdropWatcher',

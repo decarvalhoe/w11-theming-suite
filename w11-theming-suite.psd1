@@ -41,6 +41,8 @@
         'Get-TaskbarExplorerPid',
         'Invoke-ShellTAPInject',
         'Set-ShellTAPMode',
+        'Invoke-StartMenuDiscovery',
+        'Invoke-StartMenuTransparency',
         'Start-W11BackdropWatcher',
         'Stop-W11BackdropWatcher',
         'Register-W11BackdropWatcherStartup',

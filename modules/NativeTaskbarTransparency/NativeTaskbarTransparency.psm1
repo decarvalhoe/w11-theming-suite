@@ -1902,8 +1902,26 @@ function Invoke-ShellTAPInject {
         return $false
     }
 
-    # Set environment variable for TargetId (DLL reads it on init)
-    [System.Environment]::SetEnvironmentVariable('W11_SHELLTAP_TARGET', $TargetId, 'Process')
+    # Write TargetId to shared memory so the DLL reads it on init (cross-process)
+    # Fixed name: "W11ThemeSuite_ShellTAP_Init" (64 wchar_t = 128 bytes)
+    try {
+        $initSize = 128
+        $script:_shellTapInitMmf = [System.IO.MemoryMappedFiles.MemoryMappedFile]::CreateOrOpen(
+            'W11ThemeSuite_ShellTAP_Init', $initSize,
+            [System.IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite)
+        $initAccessor = $script:_shellTapInitMmf.CreateViewAccessor(0, $initSize)
+        for ($z = 0; $z -lt $initSize; $z++) { $initAccessor.Write($z, [byte]0) }
+        $idBytes = [System.Text.Encoding]::Unicode.GetBytes($TargetId)
+        for ($b = 0; $b -lt [Math]::Min($idBytes.Length, 126); $b++) {
+            $initAccessor.Write($b, $idBytes[$b])
+        }
+        $initAccessor.Dispose()
+        Write-Verbose "TargetId '$TargetId' written to init shared memory"
+    }
+    catch {
+        Write-Error "Failed to create init shared memory: $_"
+        return $false
+    }
 
     Write-Host "Injecting ShellTAP.dll into $TargetProcess (PID $targetPid)..." -ForegroundColor Cyan
 
@@ -2041,6 +2059,120 @@ function Set-ShellTAPMode {
         return $false
     }
     return $true
+}
+
+# ===========================================================================
+# Start Menu Transparency
+# ===========================================================================
+# Convenience wrappers around Invoke-ShellTAPInject for the Start Menu.
+# The Start Menu is hosted in StartMenuExperienceHost.exe and uses XAML
+# composition. ShellTAP can inject into it just like the taskbar.
+# ===========================================================================
+
+function Invoke-StartMenuDiscovery {
+    <#
+    .SYNOPSIS
+        Runs ShellTAP in discovery mode on the Start Menu process.
+    .DESCRIPTION
+        Injects ShellTAP.dll into StartMenuExperienceHost.exe in discovery
+        mode (no target elements). The DLL logs ALL XAML elements to a file
+        for analysis. Open the Start Menu (Win key) while injected to
+        populate the element tree.
+
+        REQUIRES: Run as Administrator.
+    .PARAMETER LogPath
+        Custom path for the discovery log. Defaults to native\bin\ShellTAP_StartMenu_discovery.log.
+    .EXAMPLE
+        Invoke-StartMenuDiscovery
+        # Then press Win key to open Start Menu, wait a few seconds
+        # Check log at native\bin\ShellTAP_StartMenu_discovery.log
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$LogPath
+    )
+
+    $proc = Get-Process -Name StartMenuExperienceHost -ErrorAction SilentlyContinue
+    if (-not $proc) {
+        Write-Error "StartMenuExperienceHost.exe not found. Open the Start Menu first (Win key)."
+        return $false
+    }
+
+    Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
+    Write-Host 'Injecting ShellTAP in discovery mode into Start Menu...'
+    Write-Host '        ' -NoNewline
+    Write-Host 'Open the Start Menu (Win key) after injection to populate the element tree.' -ForegroundColor DarkGray
+
+    $params = @{
+        TargetProcess = 'StartMenuExperienceHost'
+        TargetId      = 'StartMenu'
+        Mode          = 'Default'
+    }
+    if ($LogPath) { $params.LogPath = $LogPath }
+
+    return Invoke-ShellTAPInject @params
+}
+
+function Invoke-StartMenuTransparency {
+    <#
+    .SYNOPSIS
+        Applies transparency to the Windows 11 Start Menu via ShellTAP injection.
+    .DESCRIPTION
+        Injects ShellTAP.dll into StartMenuExperienceHost.exe, targeting known
+        XAML background elements discovered via Invoke-StartMenuDiscovery.
+
+        If -TargetElements is not specified, uses a default set of known elements.
+        If these don't work on your build, run Invoke-StartMenuDiscovery first
+        to find the correct element names.
+
+        REQUIRES: Run as Administrator.
+    .PARAMETER Mode
+        The appearance mode: 'Transparent' or 'Acrylic'.
+    .PARAMETER TargetElements
+        Override the default target elements with custom ones from discovery.
+        Format: @("ElementName:ElementType", ...)
+    .EXAMPLE
+        Invoke-StartMenuTransparency -Mode Transparent
+    .EXAMPLE
+        Invoke-StartMenuTransparency -Mode Acrylic
+    .EXAMPLE
+        # With custom elements from discovery
+        Invoke-StartMenuTransparency -TargetElements @("AcrylicBackgroundFill:Rectangle")
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [ValidateSet('Transparent', 'Acrylic')]
+        [string]$Mode = 'Transparent',
+
+        [Parameter()]
+        [string[]]$TargetElements
+    )
+
+    $proc = Get-Process -Name StartMenuExperienceHost -ErrorAction SilentlyContinue
+    if (-not $proc) {
+        Write-Error "StartMenuExperienceHost.exe not found. Open the Start Menu first (Win key)."
+        return $false
+    }
+
+    # Default known elements (Win11 25H2)
+    # These may need updating for different builds -- use Invoke-StartMenuDiscovery
+    if (-not $TargetElements -or $TargetElements.Count -eq 0) {
+        $TargetElements = @(
+            'BackgroundFill:Rectangle',
+            'AcrylicBackgroundFill:Rectangle',
+            'BackgroundStroke:Rectangle',
+            'AcrylicBorder:Border',
+            'LayerBorder:Border',
+            'ContentBorder:Border'
+        )
+    }
+
+    Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
+    Write-Host "Injecting ShellTAP into Start Menu ($Mode, $($TargetElements.Count) targets)..."
+
+    return Invoke-ShellTAPInject -TargetProcess StartMenuExperienceHost `
+        -TargetId StartMenu -TargetElements $TargetElements -Mode $Mode
 }
 
 # ===========================================================================
@@ -2273,6 +2405,8 @@ Export-ModuleMember -Function @(
     'Get-TaskbarExplorerPid',
     'Invoke-ShellTAPInject',
     'Set-ShellTAPMode',
+    'Invoke-StartMenuDiscovery',
+    'Invoke-StartMenuTransparency',
     'Start-W11BackdropWatcher',
     'Stop-W11BackdropWatcher',
     'Register-W11BackdropWatcherStartup',
