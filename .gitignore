@@ -19,6 +19,7 @@ native/bin/*.exp
 native/bin/*.log
 native/bin/*_new.*
 native/TaskbarTAP/obj/
+native/ShellTAP/obj/
 
 # OS files
 Thumbs.db
