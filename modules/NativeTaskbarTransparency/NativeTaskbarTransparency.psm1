@@ -1748,6 +1748,302 @@ function Set-TaskbarTAPMode {
 }
 
 # ===========================================================================
+# ShellTAP -- Generic XAML injection for any XAML-based process
+# ===========================================================================
+# Refactored from TaskbarTAP to support injection into:
+#   - explorer.exe (taskbar)
+#   - StartMenuExperienceHost.exe (Start Menu)
+#   - ShellExperienceHost.exe (Action Center, Notifications)
+#
+# Uses the same two-stage injection pattern but with a configurable DLL
+# that reads target element names from shared memory.
+# ===========================================================================
+
+function Invoke-ShellTAPInject {
+    <#
+    .SYNOPSIS
+        Injects ShellTAP.dll into a target XAML process for transparency.
+    .DESCRIPTION
+        Generic XAML injection function. Writes a ShellTAPConfig struct to named
+        shared memory, then injects ShellTAP.dll into the target process via
+        CreateRemoteThread + LoadLibraryW.
+
+        In discovery mode (no -TargetElements), the DLL logs ALL XAML elements
+        to a discovery log file for analysis.
+
+        In targeting mode, the DLL matches elements by name+type and applies
+        the specified appearance mode.
+
+        REQUIRES: Run as Administrator.
+    .PARAMETER TargetProcess
+        The process name to inject into (e.g., 'StartMenuExperienceHost').
+    .PARAMETER TargetId
+        Unique identifier for this injection target (e.g., 'StartMenu').
+        Used to name shared memory regions.
+    .PARAMETER TargetElements
+        Array of "Name:Type" strings to match in the XAML tree.
+        Example: @("BackgroundFill:Rectangle", "BackgroundStroke:Rectangle")
+        If omitted or empty, enters discovery mode.
+    .PARAMETER Mode
+        The appearance mode: 'Transparent', 'Acrylic', or 'Default'.
+    .PARAMETER LogPath
+        Custom path for the discovery/debug log file.
+    .EXAMPLE
+        # Discovery mode: log all XAML elements in Start Menu
+        Invoke-ShellTAPInject -TargetProcess StartMenuExperienceHost -TargetId StartMenu
+    .EXAMPLE
+        # Apply transparency to known taskbar elements via ShellTAP
+        Invoke-ShellTAPInject -TargetProcess explorer -TargetId Taskbar -TargetElements @("BackgroundFill:Rectangle", "BackgroundStroke:Rectangle") -Mode Transparent
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$TargetProcess,
+
+        [Parameter(Mandatory)]
+        [string]$TargetId,
+
+        [Parameter()]
+        [string[]]$TargetElements = @(),
+
+        [Parameter()]
+        [ValidateSet('Transparent', 'Acrylic', 'Default')]
+        [string]$Mode = 'Transparent',
+
+        [Parameter()]
+        [string]$LogPath
+    )
+
+    # Locate ShellTAP.dll
+    $moduleRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $shellTapDll = Join-Path $moduleRoot 'native\bin\ShellTAP.dll'
+    if (-not (Test-Path $shellTapDll)) {
+        Write-Error "ShellTAP.dll not found at: $shellTapDll. Run native\ShellTAP\build.cmd first."
+        return $false
+    }
+    $shellTapDllFull = (Resolve-Path $shellTapDll).Path
+
+    # Find the target process
+    $proc = Get-Process -Name $TargetProcess -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $proc) {
+        Write-Error "Process '$TargetProcess' not found. Is it running?"
+        return $false
+    }
+    $targetPid = [uint32]$proc.Id
+    Write-Verbose "Target process: $TargetProcess (PID $targetPid)"
+
+    # Build the ShellTAPConfig struct and write to shared memory
+    $modeMap = @{ 'Default' = 0; 'Transparent' = 1; 'Acrylic' = 2 }
+    $modeInt = $modeMap[$Mode]
+
+    # Calculate struct size: version(4) + mode(4) + targetCount(4) + targetNames(8*64*2) + targetTypes(8*128*2) + logPath(260*2) + flags(4)
+    # = 4 + 4 + 4 + 1024 + 2048 + 520 + 4 = 3608 bytes
+    $configSize = 3608
+    $configName = "W11ThemeSuite_ShellTAP_${TargetId}_Config"
+
+    try {
+        # Create shared memory for config
+        $mmfConfig = [System.IO.MemoryMappedFiles.MemoryMappedFile]::CreateOrOpen(
+            $configName, $configSize,
+            [System.IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite)
+        $accessor = $mmfConfig.CreateViewAccessor(0, $configSize)
+
+        # Write version
+        $accessor.Write(0, [int]1)
+        # Write mode
+        $accessor.Write(4, [int]$modeInt)
+        # Write targetCount
+        $accessor.Write(8, [int]$TargetElements.Count)
+
+        # Write target names and types (offset 12)
+        $nameOffset = 12
+        $typeOffset = 12 + (8 * 64 * 2)  # After names block
+
+        for ($i = 0; $i -lt [Math]::Min($TargetElements.Count, 8); $i++) {
+            $parts = $TargetElements[$i] -split ':', 2
+            $name = $parts[0]
+            $type = if ($parts.Count -gt 1) { $parts[1] } else { '*' }
+
+            # Write name (wchar_t[64])
+            $nameBytes = [System.Text.Encoding]::Unicode.GetBytes($name)
+            $namePos = $nameOffset + ($i * 64 * 2)
+            for ($b = 0; $b -lt [Math]::Min($nameBytes.Length, 126); $b++) {
+                $accessor.Write($namePos + $b, $nameBytes[$b])
+            }
+
+            # Write type (wchar_t[128])
+            $typeBytes = [System.Text.Encoding]::Unicode.GetBytes($type)
+            $typePos = $typeOffset + ($i * 128 * 2)
+            for ($b = 0; $b -lt [Math]::Min($typeBytes.Length, 254); $b++) {
+                $accessor.Write($typePos + $b, $typeBytes[$b])
+            }
+        }
+
+        # Write logPath (offset after types block)
+        $logPathOffset = $typeOffset + (8 * 128 * 2)
+        if ($LogPath) {
+            $logBytes = [System.Text.Encoding]::Unicode.GetBytes($LogPath)
+            for ($b = 0; $b -lt [Math]::Min($logBytes.Length, 518); $b++) {
+                $accessor.Write($logPathOffset + $b, $logBytes[$b])
+            }
+        }
+
+        $accessor.Dispose()
+        # Keep mmfConfig alive -- the DLL will read it
+
+        Write-Verbose "Config written to shared memory '$configName'"
+        if ($TargetElements.Count -eq 0) {
+            Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
+            Write-Host "Discovery mode: all XAML elements will be logged."
+        }
+    }
+    catch {
+        Write-Error "Failed to create config shared memory: $_"
+        return $false
+    }
+
+    # Set environment variable for TargetId (DLL reads it on init)
+    [System.Environment]::SetEnvironmentVariable('W11_SHELLTAP_TARGET', $TargetId, 'Process')
+
+    Write-Host "Injecting ShellTAP.dll into $TargetProcess (PID $targetPid)..." -ForegroundColor Cyan
+
+    # Stage 1: Inject DLL via CreateRemoteThread + LoadLibraryW
+    $hProcess = [W11ThemeSuite.TAPHelper]::OpenProcess(
+        [W11ThemeSuite.TAPHelper]::PROCESS_ALL_ACCESS, $false, $targetPid)
+    if ($hProcess -eq [IntPtr]::Zero) {
+        $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        Write-Error "OpenProcess failed (error $err). Are you running as Administrator?"
+        return $false
+    }
+
+    try {
+        $dllPathBytes = [System.Text.Encoding]::Unicode.GetBytes($shellTapDllFull + "`0")
+        $dllPathSize = [uint32]$dllPathBytes.Length
+
+        $pRemoteMem = [W11ThemeSuite.TAPHelper]::VirtualAllocEx(
+            $hProcess, [IntPtr]::Zero, $dllPathSize,
+            ([W11ThemeSuite.TAPHelper]::MEM_COMMIT -bor [W11ThemeSuite.TAPHelper]::MEM_RESERVE),
+            [W11ThemeSuite.TAPHelper]::PAGE_READWRITE)
+        if ($pRemoteMem -eq [IntPtr]::Zero) {
+            Write-Error "VirtualAllocEx failed"
+            return $false
+        }
+
+        $bytesWritten = [uint32]0
+        $wrote = [W11ThemeSuite.TAPHelper]::WriteProcessMemory(
+            $hProcess, $pRemoteMem, $dllPathBytes, $dllPathSize, [ref]$bytesWritten)
+        if (-not $wrote) {
+            Write-Error "WriteProcessMemory failed"
+            return $false
+        }
+
+        $hKernel32 = [W11ThemeSuite.TAPHelper]::GetModuleHandle("kernel32.dll")
+        $pLoadLibraryW = [W11ThemeSuite.TAPHelper]::GetProcAddress($hKernel32, "LoadLibraryW")
+
+        $threadId = [uint32]0
+        $hThread = [W11ThemeSuite.TAPHelper]::CreateRemoteThread(
+            $hProcess, [IntPtr]::Zero, 0, $pLoadLibraryW, $pRemoteMem, 0, [ref]$threadId)
+        if ($hThread -eq [IntPtr]::Zero) {
+            $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            Write-Error "CreateRemoteThread failed (error $err). Are you running as Administrator?"
+            return $false
+        }
+
+        [W11ThemeSuite.TAPHelper]::WaitForSingleObject($hThread, 10000) | Out-Null
+        [W11ThemeSuite.TAPHelper]::CloseHandle($hThread) | Out-Null
+        [W11ThemeSuite.TAPHelper]::VirtualFreeEx(
+            $hProcess, $pRemoteMem, 0, [W11ThemeSuite.TAPHelper]::MEM_RELEASE) | Out-Null
+
+        Write-Host "DLL injected!" -ForegroundColor Green
+        Write-Host "Waiting for XAML Diagnostics initialization..." -ForegroundColor Gray
+
+        # Wait for mode shared memory to appear
+        $modeName = "W11ThemeSuite_ShellTAP_${TargetId}_Mode"
+        $maxWait = 45
+        $waited = 0
+        $ready = $false
+
+        while ($waited -lt $maxWait) {
+            Start-Sleep -Milliseconds 1000
+            $waited++
+            try {
+                $mmf = [System.IO.MemoryMappedFiles.MemoryMappedFile]::OpenExisting($modeName)
+                $mmf.Dispose()
+                $ready = $true
+                break
+            }
+            catch {
+                if ($waited % 10 -eq 0) {
+                    Write-Verbose "Still waiting for ShellTAP initialization... ($waited s)"
+                }
+            }
+        }
+
+        if (-not $ready) {
+            Write-Warning "ShellTAP DLL injected but shared memory not detected after ${maxWait}s."
+            return $false
+        }
+
+        Write-Host "XAML Diagnostics initialized!" -ForegroundColor Green
+
+        if ($TargetElements.Count -eq 0) {
+            $logDir = Split-Path $shellTapDllFull -Parent
+            Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+            Write-Host "Discovery mode active. Check log in: $logDir"
+        }
+        else {
+            Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+            Write-Host "ShellTAP active on $TargetProcess (target=$TargetId, mode=$Mode)."
+        }
+
+        return $true
+    }
+    finally {
+        [W11ThemeSuite.TAPHelper]::CloseHandle($hProcess) | Out-Null
+    }
+}
+
+function Set-ShellTAPMode {
+    <#
+    .SYNOPSIS
+        Changes the appearance mode for an active ShellTAP injection.
+    .PARAMETER TargetId
+        The TargetId used when injecting (e.g., 'StartMenu', 'Taskbar').
+    .PARAMETER Mode
+        The appearance mode: 'Transparent', 'Acrylic', or 'Default'.
+    .EXAMPLE
+        Set-ShellTAPMode -TargetId StartMenu -Mode Transparent
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]$TargetId,
+
+        [Parameter(Mandatory)]
+        [ValidateSet('Transparent', 'Acrylic', 'Default')]
+        [string]$Mode
+    )
+
+    $modeMap = @{ 'Default' = 0; 'Transparent' = 1; 'Acrylic' = 2 }
+    $modeInt = $modeMap[$Mode]
+    $modeName = "W11ThemeSuite_ShellTAP_${TargetId}_Mode"
+
+    try {
+        $mmf = [System.IO.MemoryMappedFiles.MemoryMappedFile]::OpenExisting($modeName)
+        $accessor = $mmf.CreateViewAccessor(0, 4)
+        $accessor.Write(0, [int]$modeInt)
+        $accessor.Dispose()
+        $mmf.Dispose()
+        Write-Verbose "ShellTAP mode set to $Mode ($modeInt) for target '$TargetId'."
+    }
+    catch {
+        Write-Error "Failed to set ShellTAP mode for '$TargetId'. Is the DLL injected? Error: $_"
+        return $false
+    }
+    return $true
+}
+
+# ===========================================================================
 # Backdrop Watcher -- persistent DWM backdrop for ALL app windows
 # ===========================================================================
 
@@ -1975,6 +2271,8 @@ Export-ModuleMember -Function @(
     'Invoke-TaskbarTAPInject',
     'Set-TaskbarTAPMode',
     'Get-TaskbarExplorerPid',
+    'Invoke-ShellTAPInject',
+    'Set-ShellTAPMode',
     'Start-W11BackdropWatcher',
     'Stop-W11BackdropWatcher',
     'Register-W11BackdropWatcherStartup',

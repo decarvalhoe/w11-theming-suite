@@ -80,6 +80,9 @@ Export-ModuleMember -Function @(
     'Invoke-TaskbarTAPInject',
     'Set-TaskbarTAPMode',
     'Get-TaskbarExplorerPid',
+    # NativeTaskbarTransparency (ShellTAP - generic XAML injection)
+    'Invoke-ShellTAPInject',
+    'Set-ShellTAPMode',
     # NativeTaskbarTransparency (Backdrop Watcher)
     'Start-W11BackdropWatcher',
     'Stop-W11BackdropWatcher',

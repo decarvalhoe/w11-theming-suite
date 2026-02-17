@@ -1,0 +1,8 @@
+LIBRARY ShellTAP
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE
+    SetShellTAPMode
+    GetShellTAPMode
+    GetShellTAPVersion
+    GetShellTAPAppliedCount
