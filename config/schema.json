@@ -385,6 +385,121 @@
       },
       "additionalProperties": false
     },
+    "transparency": {
+      "type": ["object", "null"],
+      "description": "System-wide transparency effects configuration. Controls taskbar, Start Menu, Action Center, app windows, and context menus transparency.",
+      "properties": {
+        "taskbar": {
+          "type": "object",
+          "description": "Taskbar transparency via SWCA (SetWindowCompositionAttribute).",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable taskbar transparency."
+            },
+            "style": {
+              "type": "string",
+              "enum": ["clear", "blur", "acrylic", "opaque", "normal"],
+              "description": "Transparency style: clear (fully transparent), blur, acrylic, opaque, or normal."
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$",
+              "description": "ARGB hex color for the gradient overlay."
+            },
+            "allMonitors": {
+              "type": "boolean",
+              "description": "Apply to secondary monitor taskbars as well."
+            }
+          },
+          "additionalProperties": false
+        },
+        "taskbarTAP": {
+          "type": "object",
+          "description": "Taskbar XAML-level transparency via TAP DLL injection into explorer.exe.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable TAP injection for the taskbar."
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["Transparent", "Acrylic"],
+              "description": "TAP mode: Transparent (fully clear) or Acrylic (blurred)."
+            }
+          },
+          "additionalProperties": false
+        },
+        "startMenu": {
+          "type": "object",
+          "description": "Start Menu transparency via ShellTAP DLL injection into StartMenuExperienceHost.exe.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable Start Menu transparency."
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["Transparent", "Acrylic"],
+              "description": "Transparency mode."
+            }
+          },
+          "additionalProperties": false
+        },
+        "actionCenter": {
+          "type": "object",
+          "description": "Action Center and Notification Center transparency via ShellTAP injection into ShellExperienceHost.exe.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable Action Center transparency."
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["Transparent", "Acrylic"],
+              "description": "Transparency mode."
+            }
+          },
+          "additionalProperties": false
+        },
+        "appWindows": {
+          "type": "object",
+          "description": "Persistent DWM backdrop for all application windows via BackdropWatcher.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable persistent backdrop for app windows."
+            },
+            "backdrop": {
+              "type": "string",
+              "enum": ["mica", "acrylic", "tabbed"],
+              "description": "DWM backdrop type: mica, acrylic (blurred), or tabbed (Mica Alt)."
+            },
+            "darkMode": {
+              "type": "boolean",
+              "description": "Force immersive dark mode on affected windows."
+            }
+          },
+          "additionalProperties": false
+        },
+        "contextMenus": {
+          "type": "object",
+          "description": "Context menu transparency via DWM backdrop (applied by BackdropWatcher).",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable context menu transparency. Requires appWindows.enabled."
+            }
+          },
+          "additionalProperties": false
+        },
+        "persist": {
+          "type": "boolean",
+          "description": "Register all enabled transparency effects for login persistence and auto-recovery."
+        }
+      },
+      "additionalProperties": false
+    },
     "advanced": {
       "type": ["object", "null"],
       "description": "Advanced options: raw registry overrides and third-party tool paths.",

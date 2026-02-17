@@ -67,11 +67,11 @@ function Install-W11Theme {
         # 1. Load configuration
         # ------------------------------------------------------------------
         if ($PresetName) {
-            Write-Host "[1/7] Loading preset '$PresetName'..." -ForegroundColor Cyan
+            Write-Host "[1/8] Loading preset '$PresetName'..." -ForegroundColor Cyan
             $config = Get-W11ThemeConfig -PresetName $PresetName
         }
         elseif ($ConfigPath) {
-            Write-Host "[1/7] Loading config from '$ConfigPath'..." -ForegroundColor Cyan
+            Write-Host "[1/8] Loading config from '$ConfigPath'..." -ForegroundColor Cyan
             $config = Get-W11ThemeConfig -Path $ConfigPath
         }
         else {
@@ -97,11 +97,11 @@ function Install-W11Theme {
         $backupLabel = "pre-$($themeName -replace '\s','_')"
 
         if (-not $NoBackup) {
-            Write-Host "[2/7] Backing up current theme state as '$backupLabel'..." -ForegroundColor Yellow
+            Write-Host "[2/8] Backing up current theme state as '$backupLabel'..." -ForegroundColor Yellow
             Backup-W11ThemeState -Name $backupLabel -Force:$Force
         }
         else {
-            Write-Host "[2/7] Skipping backup (-NoBackup specified)." -ForegroundColor Yellow
+            Write-Host "[2/8] Skipping backup (-NoBackup specified)." -ForegroundColor Yellow
         }
 
         # ------------------------------------------------------------------
@@ -110,33 +110,33 @@ function Install-W11Theme {
 
         # 4a. Cursors
         if ($config.cursors) {
-            Write-Host "[3/7] Installing cursor scheme..." -ForegroundColor Cyan
+            Write-Host "[3/8] Installing cursor scheme..." -ForegroundColor Cyan
             Install-W11CursorScheme -Config $config -Activate
         }
         else {
-            Write-Host "[3/7] No cursor configuration found, skipping." -ForegroundColor Yellow
+            Write-Host "[3/8] No cursor configuration found, skipping." -ForegroundColor Yellow
         }
 
         # 4b. Sounds
         if ($config.sounds) {
-            Write-Host "[4/7] Installing sound scheme..." -ForegroundColor Cyan
+            Write-Host "[4/8] Installing sound scheme..." -ForegroundColor Cyan
             Install-W11SoundScheme -Config $config -Activate
         }
         else {
-            Write-Host "[4/7] No sound configuration found, skipping." -ForegroundColor Yellow
+            Write-Host "[4/8] No sound configuration found, skipping." -ForegroundColor Yellow
         }
 
         # 4c. Wallpaper
         if ($config.wallpaper) {
-            Write-Host "[5/7] Setting wallpaper..." -ForegroundColor Cyan
+            Write-Host "[5/8] Setting wallpaper..." -ForegroundColor Cyan
             Set-W11Wallpaper -Config $config
         }
         else {
-            Write-Host "[5/7] No wallpaper configuration found, skipping." -ForegroundColor Yellow
+            Write-Host "[5/8] No wallpaper configuration found, skipping." -ForegroundColor Yellow
         }
 
         # 4d. Apply registry theme settings
-        Write-Host "[6/7] Applying registry theme settings..." -ForegroundColor Cyan
+        Write-Host "[6/8] Applying registry theme settings..." -ForegroundColor Cyan
         Set-W11RegistryTheme -Config $config
 
         # 4e. Generate and apply .theme file
@@ -167,7 +167,7 @@ function Install-W11Theme {
             $allMon = if ($ntb.PSObject.Properties['allMonitors'] -and $ntb.allMonitors) { $true } else { $false }
             $persist = if ($ntb.PSObject.Properties['persist'] -and $ntb.persist) { $true } else { $false }
 
-            Write-Host "[7/7] Applying native taskbar transparency ($style)..." -ForegroundColor Cyan
+            Write-Host "[7/8] Applying native taskbar transparency ($style)..." -ForegroundColor Cyan
             $nativeParams = @{ Style = $style }
             if ($color) { $nativeParams['Color'] = $color }
             if ($allMon) { $nativeParams['AllMonitors'] = $true }
@@ -182,12 +182,12 @@ function Install-W11Theme {
             # Fallback: TranslucentTB (if installed)
             $ttbStatus = Test-W11TranslucentTBInstalled
             if ($ttbStatus.Installed) {
-                Write-Host "[7/7] Applying TranslucentTB settings (fallback)..." -ForegroundColor Cyan
+                Write-Host "[7/8] Applying TranslucentTB settings (fallback)..." -ForegroundColor Cyan
                 Set-W11TranslucentTBConfig -Config $config -Force
             }
             else {
                 # Neither native config nor TTB available — try to derive from TTB config
-                Write-Host "[7/7] TranslucentTB not installed. Deriving native taskbar settings..." -ForegroundColor Yellow
+                Write-Host "[7/8] TranslucentTB not installed. Deriving native taskbar settings..." -ForegroundColor Yellow
                 $ttbCfg = $config.advanced.translucentTB.config
                 if ($ttbCfg -and $ttbCfg.desktop_appearance) {
                     $accent = $ttbCfg.desktop_appearance.accent
@@ -201,7 +201,128 @@ function Install-W11Theme {
             }
         }
         else {
-            Write-Host "[7/7] No taskbar transparency configuration found, skipping." -ForegroundColor Yellow
+            Write-Host "[7/8] No taskbar transparency configuration found, skipping." -ForegroundColor Yellow
+        }
+
+        # 4h. System-wide transparency (new transparency config block)
+        $hasTransparency = $config.PSObject.Properties['transparency'] -and $config.transparency
+
+        if ($hasTransparency) {
+            Write-Host "[8/8] Applying system-wide transparency effects..." -ForegroundColor Cyan
+            $t = $config.transparency
+
+            # Taskbar SWCA (from transparency block -- overrides legacy nativeTaskbar if both present)
+            if ($t.PSObject.Properties['taskbar'] -and $t.taskbar.enabled) {
+                try {
+                    $tbParams = @{ Style = if ($t.taskbar.style) { $t.taskbar.style } else { 'clear' } }
+                    if ($t.taskbar.PSObject.Properties['color'] -and $t.taskbar.color) {
+                        $tbParams.Color = $t.taskbar.color
+                    }
+                    if ($t.taskbar.PSObject.Properties['allMonitors'] -and $t.taskbar.allMonitors) {
+                        $tbParams.AllMonitors = $true
+                    }
+                    Write-Host "       Taskbar SWCA ($($tbParams.Style))..." -ForegroundColor Cyan
+                    Set-W11NativeTaskbarTransparency @tbParams
+                } catch {
+                    Write-Warning "       Taskbar SWCA failed: $_"
+                }
+            }
+
+            # Taskbar TAP injection
+            if ($t.PSObject.Properties['taskbarTAP'] -and $t.taskbarTAP.enabled) {
+                try {
+                    $tapMode = if ($t.taskbarTAP.mode) { $t.taskbarTAP.mode } else { 'Transparent' }
+                    Write-Host "       Taskbar TAP ($tapMode)..." -ForegroundColor Cyan
+                    Invoke-TaskbarTAPInject -Mode $tapMode
+                } catch {
+                    Write-Warning "       Taskbar TAP injection failed: $_"
+                }
+            }
+
+            # Start Menu
+            if ($t.PSObject.Properties['startMenu'] -and $t.startMenu.enabled) {
+                try {
+                    $smMode = if ($t.startMenu.mode) { $t.startMenu.mode } else { 'Transparent' }
+                    Write-Host "       Start Menu ($smMode)..." -ForegroundColor Cyan
+                    Invoke-StartMenuTransparency -Mode $smMode
+                } catch {
+                    Write-Warning "       Start Menu transparency failed: $_"
+                }
+            }
+
+            # Action Center
+            if ($t.PSObject.Properties['actionCenter'] -and $t.actionCenter.enabled) {
+                try {
+                    $acMode = if ($t.actionCenter.mode) { $t.actionCenter.mode } else { 'Transparent' }
+                    Write-Host "       Action Center ($acMode)..." -ForegroundColor Cyan
+                    Invoke-ActionCenterTransparency -Mode $acMode
+                } catch {
+                    Write-Warning "       Action Center transparency failed: $_"
+                }
+            }
+
+            # App Windows (BackdropWatcher)
+            if ($t.PSObject.Properties['appWindows'] -and $t.appWindows.enabled) {
+                try {
+                    $awBackdrop = if ($t.appWindows.backdrop) { $t.appWindows.backdrop } else { 'mica' }
+                    $awDark = $t.appWindows.PSObject.Properties['darkMode'] -and $t.appWindows.darkMode
+                    $incMenus = $t.PSObject.Properties['contextMenus'] -and $t.contextMenus.enabled
+
+                    $watchParams = @{ Style = $awBackdrop }
+                    if ($awDark) { $watchParams.DarkMode = $true }
+                    if ($incMenus) { $watchParams.IncludeContextMenus = $true }
+
+                    Write-Host "       App Windows ($awBackdrop, dark=$awDark, menus=$incMenus)..." -ForegroundColor Cyan
+                    Start-W11BackdropWatcher @watchParams
+                } catch {
+                    Write-Warning "       BackdropWatcher failed: $_"
+                }
+            }
+
+            # Persistence registration
+            if ($t.PSObject.Properties['persist'] -and $t.persist) {
+                try {
+                    Write-Host "       Registering transparency persistence..." -ForegroundColor Cyan
+                    $persistParams = @{}
+                    if ($t.PSObject.Properties['taskbar'] -and $t.taskbar.enabled) {
+                        $persistParams.TaskbarStyle = if ($t.taskbar.style) { $t.taskbar.style } else { 'clear' }
+                        if ($t.taskbar.PSObject.Properties['color'] -and $t.taskbar.color) {
+                            $persistParams.TaskbarColor = $t.taskbar.color
+                        }
+                        if ($t.taskbar.PSObject.Properties['allMonitors'] -and $t.taskbar.allMonitors) {
+                            $persistParams.TaskbarAllMonitors = $true
+                        }
+                    }
+                    if ($t.PSObject.Properties['taskbarTAP'] -and $t.taskbarTAP.enabled) {
+                        $persistParams.TaskbarTAP = $true
+                        if ($t.taskbarTAP.mode) { $persistParams.TaskbarTAPMode = $t.taskbarTAP.mode }
+                    }
+                    if ($t.PSObject.Properties['startMenu'] -and $t.startMenu.enabled) {
+                        $persistParams.StartMenu = $true
+                        if ($t.startMenu.mode) { $persistParams.StartMenuMode = $t.startMenu.mode }
+                    }
+                    if ($t.PSObject.Properties['actionCenter'] -and $t.actionCenter.enabled) {
+                        $persistParams.ActionCenter = $true
+                        if ($t.actionCenter.mode) { $persistParams.ActionCenterMode = $t.actionCenter.mode }
+                    }
+                    if ($t.PSObject.Properties['appWindows'] -and $t.appWindows.enabled) {
+                        $persistParams.AppWindows = $true
+                        if ($t.appWindows.backdrop) { $persistParams.AppWindowsBackdrop = $t.appWindows.backdrop }
+                        if ($t.appWindows.PSObject.Properties['darkMode'] -and $t.appWindows.darkMode) {
+                            $persistParams.AppWindowsDarkMode = $true
+                        }
+                    }
+                    if ($t.PSObject.Properties['contextMenus'] -and $t.contextMenus.enabled) {
+                        $persistParams.ContextMenus = $true
+                    }
+                    Register-W11TransparencyPersistence @persistParams
+                } catch {
+                    Write-Warning "       Persistence registration failed: $_"
+                }
+            }
+        }
+        else {
+            Write-Host "[8/8] No transparency configuration found, skipping." -ForegroundColor Yellow
         }
 
         # ------------------------------------------------------------------
