@@ -213,6 +213,22 @@ namespace W11ThemeSuite {
             GetClassName(hwnd, sb, sb.Capacity);
             return sb.ToString();
         }
+
+        // Find all visible windows matching a specific class name
+        public static List<IntPtr> FindWindowsByClass(string targetClass) {
+            var windows = new List<IntPtr>();
+            EnumWindows((hWnd, lParam) => {
+                if (IsWindowVisible(hWnd)) {
+                    var sb = new System.Text.StringBuilder(256);
+                    GetClassName(hWnd, sb, sb.Capacity);
+                    if (string.Equals(sb.ToString(), targetClass, StringComparison.OrdinalIgnoreCase)) {
+                        windows.Add(hWnd);
+                    }
+                }
+                return true;
+            }, IntPtr.Zero);
+            return windows;
+        }
     }
 
     // =====================================================================
@@ -267,6 +283,7 @@ namespace W11ThemeSuite {
         // --- Constants ---
         private const uint EVENT_OBJECT_SHOW = 0x8002;
         private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+        private const uint EVENT_SYSTEM_MENUPOPUPSTART = 0x0006;
         private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
         private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
         private const uint WM_QUIT = 0x0012;
@@ -280,6 +297,7 @@ namespace W11ThemeSuite {
         private static bool _darkMode = false;
         private static bool _includeContextMenus = false;
         private static int _appliedCount = 0;
+        private static int _menuAppliedCount = 0;
         private static HashSet<IntPtr> _appliedWindows = new HashSet<IntPtr>();
 
         // Pin the delegate so GC does not collect it while hook is active
@@ -303,6 +321,7 @@ namespace W11ThemeSuite {
         // --- Public API ---
         public static bool IsRunning { get { return _running; } }
         public static int AppliedCount { get { return _appliedCount; } }
+        public static int MenuAppliedCount { get { return _menuAppliedCount; } }
 
         public static void Start(int backdropType, bool darkMode, bool includeContextMenus) {
             if (_running) return;
@@ -311,6 +330,7 @@ namespace W11ThemeSuite {
             _darkMode = darkMode;
             _includeContextMenus = includeContextMenus;
             _appliedCount = 0;
+            _menuAppliedCount = 0;
             _appliedWindows.Clear();
             _running = true;
 
@@ -362,6 +382,13 @@ namespace W11ThemeSuite {
                 IntPtr.Zero, _callback, 0, 0,
                 WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
 
+            // Hook menu popup events -- more reliable than EVENT_OBJECT_SHOW for
+            // catching context menus (#32768) and XAML popups (Xaml_WindowedPopupClass)
+            IntPtr hookMenu = SetWinEventHook(
+                EVENT_SYSTEM_MENUPOPUPSTART, EVENT_SYSTEM_MENUPOPUPSTART,
+                IntPtr.Zero, _callback, 0, 0,
+                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+
             MSG msg;
             while (_running && GetMessageW(out msg, IntPtr.Zero, 0, 0)) {
                 TranslateMessage(ref msg);
@@ -370,6 +397,7 @@ namespace W11ThemeSuite {
 
             if (hookShow != IntPtr.Zero) UnhookWinEvent(hookShow);
             if (hookFG != IntPtr.Zero) UnhookWinEvent(hookFG);
+            if (hookMenu != IntPtr.Zero) UnhookWinEvent(hookMenu);
             _callback = null;
         }
 
@@ -391,9 +419,11 @@ namespace W11ThemeSuite {
 
             if (MenuClasses.Contains(className)) {
                 if (_includeContextMenus) {
-                    DwmHelper.SetBackdropType(rootHwnd, _backdropType);
+                    int mhr = DwmHelper.SetBackdropType(rootHwnd, _backdropType);
                     if (_darkMode) DwmHelper.SetDarkMode(rootHwnd, true);
+                    if (mhr == 0) _menuAppliedCount++;
                 }
+                // Don't cache menus -- they are transient and get recreated
                 return;
             }
 
@@ -2281,6 +2311,107 @@ function Invoke-ActionCenterTransparency {
 }
 
 # ===========================================================================
+# Context Menu Transparency -- DWM backdrop on right-click menus & popups
+# ===========================================================================
+
+function Set-W11ContextMenuBackdrop {
+    <#
+    .SYNOPSIS
+        Applies a DWM backdrop to currently visible context menus and popups.
+    .DESCRIPTION
+        One-shot function that enumerates all visible windows of class '#32768'
+        (Win32 context menus) and 'Xaml_WindowedPopupClass' (XAML popups), then
+        applies the specified DWM backdrop type via ExtendFrame + SetBackdropType.
+
+        For persistent context menu transparency (auto-applying to every new
+        context menu), use Start-W11BackdropWatcher -IncludeContextMenus instead.
+    .PARAMETER Style
+        The backdrop type: mica, acrylic, or tabbed. Default: acrylic.
+    .PARAMETER DarkMode
+        Also force immersive dark mode on the menus.
+    .EXAMPLE
+        # Right-click on the desktop, then run:
+        Set-W11ContextMenuBackdrop -Style acrylic
+    .EXAMPLE
+        Set-W11ContextMenuBackdrop -Style mica -DarkMode
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [ValidateSet('mica', 'acrylic', 'tabbed')]
+        [string]$Style = 'acrylic',
+
+        [switch]$DarkMode
+    )
+
+    $backdropType = $script:BackdropMap[$Style]
+    $menuClasses = @('#32768', 'Xaml_WindowedPopupClass')
+    $total = 0
+
+    foreach ($cls in $menuClasses) {
+        $windows = [W11ThemeSuite.DwmHelper]::FindWindowsByClass($cls)
+        foreach ($hwnd in $windows) {
+            $hr = [W11ThemeSuite.DwmHelper]::SetBackdropType($hwnd, $backdropType)
+            if ($hr -eq 0) {
+                if ($DarkMode) {
+                    [W11ThemeSuite.DwmHelper]::SetDarkMode($hwnd, $true) | Out-Null
+                }
+                $total++
+                Write-Verbose "Applied $Style backdrop to $cls window 0x$($hwnd.ToString('X'))"
+            }
+        }
+    }
+
+    if ($total -gt 0) {
+        Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+        Write-Host "Applied '$Style' backdrop to $total context menu/popup window(s)."
+    } else {
+        Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
+        Write-Host 'No visible context menus found. Right-click first, then run this command.'
+        Write-Host '        ' -NoNewline
+        Write-Host 'TIP: Use Start-W11BackdropWatcher -IncludeContextMenus for persistent effect.' -ForegroundColor DarkGray
+    }
+    return $total
+}
+
+function Get-W11ContextMenuBackdropStatus {
+    <#
+    .SYNOPSIS
+        Shows the current status of context menu transparency.
+    .DESCRIPTION
+        Reports whether the BackdropWatcher is running with context menu support
+        enabled, and how many context menus have been styled in the current session.
+    .EXAMPLE
+        Get-W11ContextMenuBackdropStatus
+    #>
+    [CmdletBinding()]
+    param()
+
+    $watcherRunning = [W11ThemeSuite.BackdropWatcher]::IsRunning
+    $menuCount = [W11ThemeSuite.BackdropWatcher]::MenuAppliedCount
+
+    $result = [PSCustomObject]@{
+        WatcherRunning       = $watcherRunning
+        ContextMenusEnabled  = $watcherRunning  # If watcher is running, check internal state
+        MenusStyledThisSession = $menuCount
+    }
+
+    if ($watcherRunning) {
+        Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
+        Write-Host "Backdrop watcher is running. Menus styled this session: $menuCount"
+        Write-Host '        ' -NoNewline
+        Write-Host 'Context menus are handled automatically when -IncludeContextMenus is active.' -ForegroundColor DarkGray
+    } else {
+        Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
+        Write-Host 'Backdrop watcher is not running.'
+        Write-Host '        ' -NoNewline
+        Write-Host 'Use Start-W11BackdropWatcher -IncludeContextMenus for persistent effect.' -ForegroundColor DarkGray
+    }
+
+    return $result
+}
+
+# ===========================================================================
 # Backdrop Watcher -- persistent DWM backdrop for ALL app windows
 # ===========================================================================
 
@@ -2514,6 +2645,8 @@ Export-ModuleMember -Function @(
     'Invoke-StartMenuTransparency',
     'Invoke-ActionCenterDiscovery',
     'Invoke-ActionCenterTransparency',
+    'Set-W11ContextMenuBackdrop',
+    'Get-W11ContextMenuBackdropStatus',
     'Start-W11BackdropWatcher',
     'Stop-W11BackdropWatcher',
     'Register-W11BackdropWatcherStartup',

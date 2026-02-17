@@ -45,6 +45,8 @@
         'Invoke-StartMenuTransparency',
         'Invoke-ActionCenterDiscovery',
         'Invoke-ActionCenterTransparency',
+        'Set-W11ContextMenuBackdrop',
+        'Get-W11ContextMenuBackdropStatus',
         'Start-W11BackdropWatcher',
         'Stop-W11BackdropWatcher',
         'Register-W11BackdropWatcherStartup',

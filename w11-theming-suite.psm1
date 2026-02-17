@@ -89,6 +89,9 @@ Export-ModuleMember -Function @(
     # NativeTaskbarTransparency (Action Center + Notifications)
     'Invoke-ActionCenterDiscovery',
     'Invoke-ActionCenterTransparency',
+    # NativeTaskbarTransparency (Context Menu transparency)
+    'Set-W11ContextMenuBackdrop',
+    'Get-W11ContextMenuBackdropStatus',
     # NativeTaskbarTransparency (Backdrop Watcher)
     'Start-W11BackdropWatcher',
     'Stop-W11BackdropWatcher',
