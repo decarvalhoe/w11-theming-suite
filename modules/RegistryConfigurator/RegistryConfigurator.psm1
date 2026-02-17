@@ -302,6 +302,46 @@ function Set-W11RegistryTheme {
                 Set-RegistryValue -Path $regAuto.Path -Name $regAuto.Name -Type $regAuto.Type -Value ([int]$accentConfig.autoColorization)
             }
         }
+
+        # AccentPalette: array of 8 RGBA entries (32 bytes).
+        # Config format: array of 8 hex color strings e.g. ["#010101","#010101",...,"#FFFFFF"]
+        if ($accentConfig.PSObject.Properties['accentPalette'] -and $null -ne $accentConfig.accentPalette) {
+            $paletteEntries = @($accentConfig.accentPalette)
+            if ($paletteEntries.Count -eq 8) {
+                $paletteBytes = [byte[]]::new(32)
+                for ($i = 0; $i -lt 8; $i++) {
+                    $hex = $paletteEntries[$i] -replace '^#', ''
+                    $paletteBytes[$i * 4]     = [Convert]::ToByte($hex.Substring(0, 2), 16)  # R
+                    $paletteBytes[$i * 4 + 1] = [Convert]::ToByte($hex.Substring(2, 2), 16)  # G
+                    $paletteBytes[$i * 4 + 2] = [Convert]::ToByte($hex.Substring(4, 2), 16)  # B
+                    $paletteBytes[$i * 4 + 3] = 0x00                                          # A (unused)
+                }
+                $palettePath = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Accent'
+                if ($PSCmdlet.ShouldProcess("$palettePath\AccentPalette", "Set AccentPalette (32 bytes)")) {
+                    Set-RegistryValue -Path $palettePath -Name 'AccentPalette' -Type 'Binary' -Value $paletteBytes
+                }
+            }
+            else {
+                Write-Warning "AccentPalette must contain exactly 8 hex colors, got $($paletteEntries.Count). Skipping."
+            }
+        }
+    }
+
+    # -----------------------------------------------------------------
+    # Win32Colors section (Control Panel\Colors)
+    # -----------------------------------------------------------------
+    if ($null -ne $Config.win32Colors) {
+        Write-Verbose '--- Applying Win32Colors section ---'
+        $colorsConfig = $Config.win32Colors
+        $colorPath = 'HKCU:\Control Panel\Colors'
+
+        foreach ($prop in $colorsConfig.PSObject.Properties) {
+            $colorName = $prop.Name
+            $colorValue = $prop.Value
+            if ($PSCmdlet.ShouldProcess("$colorPath\$colorName", "Set Win32 color to $colorValue")) {
+                Set-RegistryValue -Path $colorPath -Name $colorName -Type 'String' -Value $colorValue
+            }
+        }
     }
 
     # -----------------------------------------------------------------

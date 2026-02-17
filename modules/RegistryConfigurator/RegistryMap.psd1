@@ -95,6 +95,16 @@
             Name = 'ForceEffectMode'
             Type = 'DWord'
         }
+        AccentColorInactive = @{
+            Path = 'HKCU:\Software\Microsoft\Windows\DWM'
+            Name = 'AccentColorInactive'
+            Type = 'DWord'
+        }
+        EnableWindowColorization = @{
+            Path = 'HKCU:\Software\Microsoft\Windows\DWM'
+            Name = 'EnableWindowColorization'
+            Type = 'DWord'
+        }
     }
 
     Taskbar = @{

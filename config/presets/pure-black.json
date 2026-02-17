@@ -1,31 +1,42 @@
 {
   "meta": {
     "name": "Pure Black",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "author": "w11-theming-suite",
-    "description": "Full OLED black theme matching TranslucentTB clear mode - zero light, zero distraction",
-    "tags": ["black", "oled", "pure", "minimal", "translucenttb", "clear"]
+    "description": "Full deep black theme — forces #010101 on all registry-reachable surfaces (taskbar, Start Menu, title bars, borders, Win32 backgrounds). WinUI app bodies (Settings, Store) remain dark grey as they use hardcoded XAML theme resources.",
+    "tags": ["black", "oled", "pure", "minimal", "deep-black"]
   },
   "mode": {
     "appsUseLightTheme": 0,
     "systemUsesLightTheme": 0
   },
   "accentColor": {
-    "color": "#000000",
-    "colorPrevalence": 0,
-    "colorPrevalenceTitleBars": 0,
-    "autoColorization": 0
+    "color": "#010101",
+    "colorPrevalence": 1,
+    "enableTransparency": 1,
+    "autoColorization": 0,
+    "accentPalette": [
+      "#010101",
+      "#010101",
+      "#010101",
+      "#010101",
+      "#010101",
+      "#010101",
+      "#010101",
+      "#FFFFFF"
+    ]
   },
   "dwm": {
-    "enableTransparency": 1,
-    "colorizationColor": "0xC40C00D0",
-    "colorizationAfterglow": "0xC40C00D0",
-    "colorizationColorBalance": 0,
+    "colorizationColor": "0xC4010101",
+    "colorizationAfterglow": "0xC4010101",
+    "colorizationColorBalance": 100,
     "colorizationAfterglowBalance": 0,
     "colorizationBlurBalance": 0,
     "colorizationGlassReflectionIntensity": 0,
     "enableAeroPeek": 0,
-    "forceEffectMode": 1
+    "forceEffectMode": 1,
+    "accentColorInactive": "0xFF010101",
+    "enableWindowColorization": 1
   },
   "taskbar": {
     "alignment": 0,
@@ -36,38 +47,43 @@
     "useOLEDTransparency": 1
   },
   "wallpaper": {
-    "mode": "static",
-    "path": "pure-black/wallpaper.png",
+    "mode": "solid",
+    "color": "#000000",
+    "path": "",
     "style": 10,
     "tileWallpaper": 0
   },
-  "colors": {
-    "activeTitle": "0 0 0",
-    "background": "0 0 0",
-    "hilight": "40 40 40",
-    "hilightText": "255 255 255",
-    "titleText": "200 200 200",
-    "window": "0 0 0",
-    "windowText": "200 200 200",
-    "scrollbar": "20 20 20",
-    "inactiveTitle": "0 0 0",
-    "menu": "10 10 10",
-    "menuText": "200 200 200",
-    "activeBorder": "0 0 0",
-    "inactiveBorder": "0 0 0",
-    "appWorkspace": "0 0 0",
-    "buttonFace": "15 15 15",
-    "buttonShadow": "0 0 0",
-    "grayText": "100 100 100",
-    "buttonText": "200 200 200",
-    "inactiveTitleText": "100 100 100",
-    "buttonHilight": "30 30 30",
-    "buttonDkShadow": "0 0 0",
-    "buttonLight": "20 20 20",
-    "infoText": "200 200 200",
-    "infoWindow": "10 10 10",
-    "gradientActiveTitle": "0 0 0",
-    "gradientInactiveTitle": "0 0 0"
+  "win32Colors": {
+    "ActiveTitle": "0 0 0",
+    "Background": "0 0 0",
+    "Hilight": "30 30 30",
+    "HilightText": "255 255 255",
+    "TitleText": "255 255 255",
+    "Window": "0 0 0",
+    "WindowText": "255 255 255",
+    "Scrollbar": "0 0 0",
+    "InactiveTitle": "0 0 0",
+    "InactiveTitleText": "128 128 128",
+    "Menu": "0 0 0",
+    "MenuText": "255 255 255",
+    "ActiveBorder": "0 0 0",
+    "InactiveBorder": "0 0 0",
+    "AppWorkspace": "0 0 0",
+    "ButtonFace": "0 0 0",
+    "ButtonShadow": "0 0 0",
+    "GrayText": "128 128 128",
+    "ButtonText": "255 255 255",
+    "ButtonHilight": "10 10 10",
+    "ButtonDkShadow": "0 0 0",
+    "ButtonLight": "5 5 5",
+    "InfoText": "255 255 255",
+    "InfoWindow": "0 0 0",
+    "GradientActiveTitle": "0 0 0",
+    "GradientInactiveTitle": "0 0 0",
+    "WindowFrame": "0 0 0",
+    "MenuHilight": "30 30 30",
+    "MenuBar": "0 0 0",
+    "HotTrackingColor": "80 80 80"
   },
   "cursors": null,
   "sounds": null,
@@ -97,22 +113,14 @@
         "type": "DWord"
       }
     ],
-    "nativeTaskbar": {
-      "style": "clear",
-      "color": "#00000000",
-      "allMonitors": true,
-      "persist": true
-    },
-    "translucentTB": {
-      "managed": true,
-      "config": {
-        "desktop_appearance": {
-          "accent": "clear",
-          "color": "#00000000",
-          "show_peek": false,
-          "show_line": false
-        }
-      }
+    "unreachableElements": {
+      "_comment": "These elements cannot be changed via registry and require native injection or msstyles patching",
+      "winuiAppBodies": "Settings, Store, etc. — hardcoded XAML theme resources (~#202020-#2D2D2D)",
+      "explorerBodyMica": "Explorer navigation pane — Mica backdrop material (~#202020)",
+      "contextMenuBodies": "Right-click menus — XAML Acrylic backdrop",
+      "flyoutsAndTooltips": "System flyouts — XAML theme resources",
+      "notificationCenter": "Notification panel body — XAML theme resources",
+      "solution": "Requires C++/WinRT injection (Issues #17-#21) or UltraUXThemePatcher + custom msstyles"
     }
   }
 }
