@@ -1,20 +1,22 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Windows%2011-25H2-0078D4?style=for-the-badge&logo=windows11&logoColor=white" alt="Windows 11 25H2"/>
   <img src="https://img.shields.io/badge/PowerShell-5.1+-5391FE?style=for-the-badge&logo=powershell&logoColor=white" alt="PowerShell 5.1+"/>
+  <img src="https://img.shields.io/badge/Electron-34-47848F?style=for-the-badge&logo=electron&logoColor=white" alt="Electron 34"/>
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="MIT License"/>
   <img src="https://img.shields.io/badge/No%20Third--Party-Native%20Only-FF6B35?style=for-the-badge" alt="No Third-Party"/>
 </p>
 
 # Windows 11 Theming Suite
 
-**A comprehensive, native Windows 11 theming toolkit that requires zero third-party software.**
+**A comprehensive, native Windows 11 theming toolkit with a full desktop GUI -- no third-party software required.**
 
-Apply system-wide transparency, custom backdrops, cursor schemes, sound packs, wallpapers, and full registry-level theming -- all through a single PowerShell module with 51 exported commands.
+Apply system-wide transparency, custom backdrops, cursor schemes, sound packs, wallpapers, and full registry-level theming -- through a graphical desktop application or directly via 51 PowerShell commands.
 
 ---
 
 ## Highlights
 
+- **Desktop GUI** -- Electron + React app with live preview for every configurable parameter (148+)
 - **Fully native** -- uses only documented Microsoft APIs (DWM, SWCA, XAML Diagnostics)
 - **System-wide transparency** -- taskbar, Start Menu, Action Center, app windows, context menus
 - **DLL injection engine** -- custom ShellTAP DLL for XAML-level property manipulation
@@ -24,12 +26,55 @@ Apply system-wide transparency, custom backdrops, cursor schemes, sound packs, w
 
 ---
 
+## Desktop Application
+
+The GUI application provides visual access to every configurable theme element with instant live preview:
+
+**13 configurable sections:**
+Mode, Accent Color, DWM Colorization, Taskbar, Win32 Colors (26 entries), Wallpaper, Transparency (6 subsystems), Cursors (15 roles), Sounds (29 events), Visual Styles, Desktop Icons, Advanced (registry overrides), Presets
+
+**8 specialized controls:**
+Toggle switch, Slider, Dropdown, Color Picker (#RRGGBB + "R G B"), Alpha Color Picker (0xAARRGGBB), File Picker, 8-slot Palette Editor, Registry Override Editor
+
+### Running the App
+
+```bash
+# Install dependencies
+cd app
+npm install
+
+# Development mode (with hot reload)
+npm run dev
+
+# Production build
+npm run package
+```
+
+The app spawns a persistent PowerShell process that loads the full module and executes commands via IPC. Changes are applied instantly to the live system via registry writes + `WM_SETTINGCHANGE` broadcasts.
+
+---
+
 ## Architecture
 
 ```
 w11-theming-suite/
 |-- w11-theming-suite.psm1        Root module loader
 |-- w11-theming-suite.psd1        Module manifest (51 commands)
+|-- app/                          Electron + React desktop GUI
+|   |-- electron/
+|   |   |-- main.js               Main process + IPC handlers
+|   |   |-- preload.js            Context bridge (themeAPI)
+|   |   +-- ps-bridge.js          Persistent PowerShell child process
+|   |-- src/
+|   |   |-- App.jsx               Root component + section routing
+|   |   |-- store/themeStore.js   Zustand store (148+ params)
+|   |   |-- hooks/useLivePreview.js  Debounced live preview engine
+|   |   |-- components/
+|   |   |   |-- controls/         8 reusable input controls
+|   |   |   |-- layout/           Sidebar, TopBar, StatusBar
+|   |   |   +-- sections/         13 settings sections
+|   |   +-- styles/global.css     Dark theme UI
+|   +-- package.json              Electron 34, React 19, Vite 6
 |-- config/
 |   |-- schema.json               JSON Schema for theme validation
 |   |-- presets/                   Built-in theme presets (6 themes)
@@ -62,12 +107,24 @@ w11-theming-suite/
 | **OS** | Windows 11 Build 22621+ (22H2) |
 | **Tested** | Windows 11 Build 26200 (25H2) |
 | **PowerShell** | 5.1+ (ships with Windows) |
+| **Node.js** | 18+ (for the desktop app only) |
 | **Privileges** | Administrator (for DLL injection) |
 | **Third-party** | None |
 
 ---
 
 ## Quick Start
+
+### Option 1: Desktop Application (Recommended)
+
+```bash
+git clone https://github.com/decarvalhoe/w11-theming-suite.git
+cd w11-theming-suite/app
+npm install
+npm run dev
+```
+
+### Option 2: PowerShell CLI
 
 ```powershell
 # 1. Clone the repository
@@ -227,6 +284,12 @@ A C# class running on a dedicated thread with a Win32 message pump, using `SetWi
 - `EVENT_SYSTEM_FOREGROUND` (0x0003) -- focus changes
 - `EVENT_SYSTEM_MENUPOPUPSTART` (0x0006) -- context menus opening
 
+### Electron GUI Architecture
+The desktop app uses a persistent PowerShell child process as its backend:
+1. `ps-bridge.js` spawns `powershell.exe`, imports the module, and maintains a command queue with sentinel-based completion detection
+2. IPC handlers in `main.js` bridge Electron's `ipcMain` to PowerShell commands with input validation and escaping
+3. The React renderer uses Zustand for state management and a debounced `useLivePreview` hook that applies changes to the live system as the user adjusts controls
+
 ---
 
 ## All Exported Commands (51)
@@ -294,6 +357,18 @@ A C# class running on a dedicated thread with a Win32 message pump, using `SetWi
 ---
 
 ## Development
+
+### Desktop App
+
+```bash
+cd app
+npm install
+npm run dev      # Vite dev server + Electron with hot reload
+npm run build    # Build production bundle
+npm run package  # Build + electron-builder installer
+```
+
+**Tech stack:** Electron 34, React 19, Vite 6, Zustand 5, react-colorful
 
 ### Building the Native DLLs
 

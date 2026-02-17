@@ -42,10 +42,11 @@ Thank you for your interest in contributing! This document provides guidelines a
 
 - Windows 11 (Build 22621+, ideally 25H2)
 - PowerShell 5.1+ (ships with Windows)
+- Node.js 18+ (for the desktop app)
 - Administrator privileges (for testing DLL injection)
 - Visual Studio Build Tools with MSVC x64 (only for native DLL changes)
 
-### Loading the Module
+### Loading the PowerShell Module
 
 ```powershell
 # Import with force-reload during development
@@ -54,6 +55,24 @@ Import-Module .\w11-theming-suite.psd1 -Force
 # Verify all commands are exported
 (Get-Command -Module w11-theming-suite).Count  # Should be 51
 ```
+
+### Running the Desktop App
+
+```bash
+cd app
+npm install
+
+# Development mode (Vite hot-reload + Electron)
+npm run dev
+
+# Build production bundle
+npm run build
+
+# Package installer (.exe)
+npm run package
+```
+
+The app uses a persistent PowerShell child process (`ps-bridge.js`) that imports the suite module and executes commands via a sentinel-based queue. The React frontend communicates through Electron's IPC layer (`preload.js` + `main.js`).
 
 ### Building Native DLLs
 
@@ -111,6 +130,32 @@ Pre-built binaries in `native/bin/` are committed to the repo for convenience.
 1. Update `config/schema.json` with new properties
 2. Update the ThemeOrchestrator's `Install-W11Theme` to handle the new properties
 3. Add appropriate defaults and validation
+4. Update the Zustand store defaults in `app/src/store/themeStore.js`
+5. Add corresponding UI controls in the relevant section component under `app/src/components/sections/`
+
+### Adding a New Section to the Desktop App
+
+1. Create a new section component in `app/src/components/sections/YourSection.jsx`
+2. Add the section's default state to `app/src/store/themeStore.js`
+3. Register it in `app/src/App.jsx` (import + add to `sectionComponents` map)
+4. Add a sidebar entry in `app/src/components/layout/Sidebar.jsx`
+5. If it uses live preview, call `useLivePreview('yourSection')` and add the IPC mapping in `useLivePreview.js`
+6. If it requires a new IPC handler, add it to `app/electron/main.js` and expose it in `app/electron/preload.js`
+
+### Modifying an Existing Control
+
+All reusable controls are in `app/src/components/controls/`. Each control accepts `value` and `onChange` props:
+
+| Control | Format | Usage |
+|---------|--------|-------|
+| `Toggle` | `0/1` or `boolean` | Binary toggles |
+| `Slider` | `0-100` number | Percentage values |
+| `Select` | Any type | Enum dropdowns |
+| `ColorPicker` | `#RRGGBB` or `"R G B"` | Colors (use `format="rgb"` for Win32) |
+| `AlphaColorPicker` | `0xAARRGGBB` | DWM colors with alpha |
+| `FilePicker` | File path string | File selection via native dialog |
+| `PaletteEditor` | Array of 8 hex strings | AccentPalette slots |
+| `RegistryOverrideEditor` | Array of override objects | Dynamic key/value table |
 
 ---
 
@@ -134,6 +179,15 @@ Pre-built binaries in `native/bin/` are committed to the repo for convenience.
   Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
   Write-Host "Informational message."
   ```
+
+### React / JavaScript (Desktop App)
+
+- **Components**: Functional components with hooks, one component per file
+- **State management**: Zustand store for all theme state, `useThemeStore` selectors in components
+- **Live preview**: Use the `useLivePreview(sectionName)` hook for registry-based sections; manual "Apply" buttons for subsystems that require injection (transparency, cursors, sounds)
+- **IPC security**: All user input must be escaped via `psEscape()` before embedding in PowerShell commands; section names must be validated against allowlists
+- **Guard checks**: Always check `if (!window.themeAPI) return;` before IPC calls
+- **Styling**: CSS classes defined in `global.css` following BEM-like conventions (`component__element--modifier`)
 
 ### C++ (Native DLLs)
 
@@ -177,7 +231,9 @@ Longer description if needed.
 
 ```
 feat: add Flyout transparency via ShellTAP injection
+feat: add DWM colorization controls to GUI
 fix: shared memory init race condition in DllMain
+fix: ps-bridge sentinel detection on partial reads
 docs: add troubleshooting section to README
 refactor: extract common TAP injection logic into helper
 ```
@@ -196,6 +252,7 @@ refactor: extract common TAP injection logic into helper
    - Module loads without errors (`Import-Module -Force`)
    - All existing commands still work
    - New commands appear in `Get-Command -Module w11-theming-suite`
+   - If modifying the desktop app: `npm run build` passes with no errors
    - If modifying native DLLs: test injection on a live Windows 11 system
 
 3. **Create the PR** targeting `DEV` with:
@@ -216,9 +273,11 @@ refactor: extract common TAP injection logic into helper
 Include:
 - Windows 11 build number (`winver`)
 - PowerShell version (`$PSVersionTable.PSVersion`)
+- Node.js version (`node -v`) if the issue is in the desktop app
 - Steps to reproduce
 - Expected vs actual behavior
 - Any error messages (full text)
+- For desktop app issues: the StatusBar bridge status (green/yellow/red)
 
 ### Feature Requests
 
@@ -226,6 +285,7 @@ Include:
 - Description of the desired behavior
 - Use case (why is this useful?)
 - If it involves a new Windows UI element: the process name and window class
+- If it involves the desktop app: which section it belongs in
 
 ### Security Issues
 
