@@ -45,6 +45,7 @@ $dwmTypeDefinition = @'
 using System;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace W11ThemeSuite {
     // MARGINS struct for DwmExtendFrameIntoClientArea
@@ -211,6 +212,203 @@ namespace W11ThemeSuite {
             var sb = new System.Text.StringBuilder(256);
             GetClassName(hwnd, sb, sb.Capacity);
             return sb.ToString();
+        }
+    }
+
+    // =====================================================================
+    // BackdropWatcher -- event-driven persistent backdrop for ALL app windows
+    // Uses SetWinEventHook to detect new windows + focus changes, then applies
+    // DWM backdrop automatically. Runs on a dedicated thread with a message pump.
+    // =====================================================================
+    public static class BackdropWatcher {
+        // --- P/Invoke (watcher-specific) ---
+        public delegate void WinEventDelegate(
+            IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
+            int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SetWinEventHook(
+            uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
+            WinEventDelegate lpfnWinEventProc,
+            uint idProcess, uint idThread, uint dwFlags);
+
+        [DllImport("user32.dll")]
+        private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetMessageW(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+
+        [DllImport("user32.dll")]
+        private static extern bool TranslateMessage(ref MSG lpMsg);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr DispatchMessageW(ref MSG lpMsg);
+
+        [DllImport("user32.dll")]
+        private static extern bool PostThreadMessage(uint idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MSG {
+            public IntPtr hwnd;
+            public uint message;
+            public IntPtr wParam;
+            public IntPtr lParam;
+            public uint time;
+            public int pt_x;
+            public int pt_y;
+        }
+
+        // --- Constants ---
+        private const uint EVENT_OBJECT_SHOW = 0x8002;
+        private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+        private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+        private const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+        private const uint WM_QUIT = 0x0012;
+        private const uint GA_ROOT = 2;
+
+        // --- State ---
+        private static Thread _thread;
+        private static uint _threadId;
+        private static volatile bool _running;
+        private static int _backdropType = 2;
+        private static bool _darkMode = false;
+        private static bool _includeContextMenus = false;
+        private static int _appliedCount = 0;
+        private static HashSet<IntPtr> _appliedWindows = new HashSet<IntPtr>();
+
+        // Pin the delegate so GC does not collect it while hook is active
+        private static WinEventDelegate _callback;
+
+        // System window classes to skip
+        private static readonly HashSet<string> SystemClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
+            "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Progman", "WorkerW",
+            "Windows.UI.Core.CoreWindow", "ForegroundStaging", "MultitaskingViewFrame",
+            "XamlExplorerHostIslandWindow", "ConsoleWindowClass", "TaskManagerWindow",
+            "ApplicationFrameInputSinkWindow", "Windows.Internal.Shell.TabProxyWindow",
+            "EdgeUiInputTopWndClass", "EdgeUiInputWndClass",
+            "Shell_InputSwitchTopLevelWindow", "LockScreenInputOcclusionWindow"
+        };
+
+        // Context menu classes
+        private static readonly HashSet<string> MenuClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
+            "#32768", "Xaml_WindowedPopupClass"
+        };
+
+        // --- Public API ---
+        public static bool IsRunning { get { return _running; } }
+        public static int AppliedCount { get { return _appliedCount; } }
+
+        public static void Start(int backdropType, bool darkMode, bool includeContextMenus) {
+            if (_running) return;
+
+            _backdropType = backdropType;
+            _darkMode = darkMode;
+            _includeContextMenus = includeContextMenus;
+            _appliedCount = 0;
+            _appliedWindows.Clear();
+            _running = true;
+
+            _thread = new Thread(WatcherThread);
+            _thread.IsBackground = true;
+            _thread.Name = "W11BackdropWatcher";
+            _thread.Start();
+
+            // Wait for thread to initialize
+            for (int i = 0; i < 50 && _threadId == 0; i++) {
+                Thread.Sleep(100);
+            }
+        }
+
+        public static void Stop() {
+            if (!_running) return;
+            _running = false;
+
+            if (_threadId != 0) {
+                PostThreadMessage(_threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+            }
+
+            if (_thread != null && _thread.IsAlive) {
+                _thread.Join(5000);
+            }
+
+            _threadId = 0;
+            _thread = null;
+        }
+
+        public static void UpdateSettings(int backdropType, bool darkMode, bool includeContextMenus) {
+            _backdropType = backdropType;
+            _darkMode = darkMode;
+            _includeContextMenus = includeContextMenus;
+        }
+
+        // --- Internal ---
+        private static void WatcherThread() {
+            _threadId = GetCurrentThreadId();
+            _callback = new WinEventDelegate(OnWinEvent);
+
+            IntPtr hookShow = SetWinEventHook(
+                EVENT_OBJECT_SHOW, EVENT_OBJECT_SHOW,
+                IntPtr.Zero, _callback, 0, 0,
+                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+
+            IntPtr hookFG = SetWinEventHook(
+                EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+                IntPtr.Zero, _callback, 0, 0,
+                WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+
+            MSG msg;
+            while (_running && GetMessageW(out msg, IntPtr.Zero, 0, 0)) {
+                TranslateMessage(ref msg);
+                DispatchMessageW(ref msg);
+            }
+
+            if (hookShow != IntPtr.Zero) UnhookWinEvent(hookShow);
+            if (hookFG != IntPtr.Zero) UnhookWinEvent(hookFG);
+            _callback = null;
+        }
+
+        private static void OnWinEvent(
+            IntPtr hWinEventHook, uint eventType, IntPtr hwnd,
+            int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+        {
+            if (idObject != 0 || hwnd == IntPtr.Zero) return;
+
+            IntPtr rootHwnd = GetAncestor(hwnd, GA_ROOT);
+            if (rootHwnd == IntPtr.Zero) rootHwnd = hwnd;
+
+            if (_appliedWindows.Contains(rootHwnd)) return;
+            if (!DwmHelper.IsWindowVisible(rootHwnd)) return;
+
+            var sb = new System.Text.StringBuilder(256);
+            DwmHelper.GetClassName(rootHwnd, sb, sb.Capacity);
+            string className = sb.ToString();
+
+            if (MenuClasses.Contains(className)) {
+                if (_includeContextMenus) {
+                    DwmHelper.SetBackdropType(rootHwnd, _backdropType);
+                    if (_darkMode) DwmHelper.SetDarkMode(rootHwnd, true);
+                }
+                return;
+            }
+
+            if (SystemClasses.Contains(className)) return;
+
+            int exStyle = DwmHelper.GetWindowLong(rootHwnd, -20);
+            if ((exStyle & 0x80) != 0) return;
+            if (DwmHelper.GetWindowTextLength(rootHwnd) == 0) return;
+
+            int hr = DwmHelper.SetBackdropType(rootHwnd, _backdropType);
+            if (hr == 0) {
+                if (_darkMode) DwmHelper.SetDarkMode(rootHwnd, true);
+                _appliedWindows.Add(rootHwnd);
+                _appliedCount++;
+            }
         }
     }
 }
@@ -1549,6 +1747,220 @@ function Set-TaskbarTAPMode {
     return $true
 }
 
+# ===========================================================================
+# Backdrop Watcher -- persistent DWM backdrop for ALL app windows
+# ===========================================================================
+
+function Start-W11BackdropWatcher {
+    <#
+    .SYNOPSIS
+        Starts an event-driven watcher that automatically applies a DWM backdrop
+        to all current and future application windows.
+    .DESCRIPTION
+        Uses SetWinEventHook to monitor EVENT_OBJECT_SHOW (new windows) and
+        EVENT_SYSTEM_FOREGROUND (focus changes). When a new top-level app window
+        appears, it applies the specified DWM backdrop type via the SetMica
+        technique (ExtendFrame + SetBackdropType + remove caption color).
+
+        The watcher runs on a dedicated background thread with a proper Win32
+        message pump. Call Stop-W11BackdropWatcher to stop it.
+
+        System windows (taskbar, desktop, etc.) are automatically excluded.
+        Context menus can optionally be included with -IncludeContextMenus.
+    .PARAMETER Style
+        The backdrop type to apply. Valid values: mica, acrylic, tabbed.
+    .PARAMETER DarkMode
+        Also force immersive dark mode (dark title bars) on affected windows.
+    .PARAMETER IncludeContextMenus
+        Also apply the backdrop to context menus (#32768, Xaml_WindowedPopupClass).
+    .PARAMETER ApplyToExisting
+        Immediately apply the backdrop to all existing visible windows before
+        starting the watcher. Default: $true.
+    .EXAMPLE
+        Start-W11BackdropWatcher -Style mica -DarkMode
+        # Apply Mica backdrop to all windows, including future ones.
+    .EXAMPLE
+        Start-W11BackdropWatcher -Style acrylic -IncludeContextMenus
+        # Apply Acrylic to all windows and context menus.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [ValidateSet('mica', 'acrylic', 'tabbed')]
+        [string]$Style = 'mica',
+
+        [switch]$DarkMode,
+
+        [switch]$IncludeContextMenus,
+
+        [bool]$ApplyToExisting = $true
+    )
+
+    if ([W11ThemeSuite.BackdropWatcher]::IsRunning) {
+        Write-Host '[WARN]  ' -ForegroundColor Yellow -NoNewline
+        Write-Host 'Backdrop watcher is already running. Use Stop-W11BackdropWatcher first.'
+        return
+    }
+
+    $backdropType = $script:BackdropMap[$Style]
+
+    # Apply to existing windows first
+    if ($ApplyToExisting) {
+        $count = Set-W11WindowBackdrop -Style $Style -AllWindows -DarkMode:$DarkMode
+        Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+        Write-Host "Applied '$Style' backdrop to $count existing window(s)."
+    }
+
+    # Start the event-driven watcher
+    [W11ThemeSuite.BackdropWatcher]::Start($backdropType, $DarkMode.IsPresent, $IncludeContextMenus.IsPresent)
+
+    Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+    Write-Host "Backdrop watcher started (style=$Style, darkMode=$($DarkMode.IsPresent), contextMenus=$($IncludeContextMenus.IsPresent))."
+    Write-Host '        ' -NoNewline
+    Write-Host 'New windows will automatically receive the backdrop. Use Stop-W11BackdropWatcher to stop.' -ForegroundColor DarkGray
+}
+
+function Stop-W11BackdropWatcher {
+    <#
+    .SYNOPSIS
+        Stops the persistent backdrop watcher.
+    .DESCRIPTION
+        Unhooks the SetWinEventHook callbacks and stops the background message
+        pump thread. Already-applied backdrops remain on their windows until
+        those windows are closed or the backdrop is reset.
+    .EXAMPLE
+        Stop-W11BackdropWatcher
+    #>
+    [CmdletBinding()]
+    param()
+
+    if (-not [W11ThemeSuite.BackdropWatcher]::IsRunning) {
+        Write-Host '[WARN]  ' -ForegroundColor Yellow -NoNewline
+        Write-Host 'Backdrop watcher is not running.'
+        return
+    }
+
+    $count = [W11ThemeSuite.BackdropWatcher]::AppliedCount
+    [W11ThemeSuite.BackdropWatcher]::Stop()
+
+    Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+    Write-Host "Backdrop watcher stopped. Applied backdrop to $count window(s) during session."
+}
+
+function Register-W11BackdropWatcherStartup {
+    <#
+    .SYNOPSIS
+        Registers the backdrop watcher to start automatically at user login.
+    .DESCRIPTION
+        Creates a PowerShell script and VBScript wrapper that launch the
+        backdrop watcher at login. The VBS runs PowerShell hidden (no console
+        flash). Registered in HKCU\...\Run.
+    .PARAMETER Style
+        The backdrop type to apply at startup.
+    .PARAMETER DarkMode
+        Also force dark mode on affected windows.
+    .PARAMETER IncludeContextMenus
+        Also apply to context menus.
+    .EXAMPLE
+        Register-W11BackdropWatcherStartup -Style mica -DarkMode
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [ValidateSet('mica', 'acrylic', 'tabbed')]
+        [string]$Style = 'mica',
+
+        [switch]$DarkMode,
+
+        [switch]$IncludeContextMenus
+    )
+
+    try {
+        $startupDir = Join-Path $env:LOCALAPPDATA 'w11-theming-suite\BackdropWatcher'
+        if (-not (Test-Path $startupDir)) {
+            New-Item -Path $startupDir -ItemType Directory -Force | Out-Null
+        }
+
+        $modulePath = $PSScriptRoot
+        $darkFlag = if ($DarkMode) { ' -DarkMode' } else { '' }
+        $menuFlag = if ($IncludeContextMenus) { ' -IncludeContextMenus' } else { '' }
+
+        $ps1Content = @"
+# Auto-generated by w11-theming-suite BackdropWatcher
+# Applies persistent DWM backdrop to all app windows at login.
+
+Start-Sleep -Seconds 5
+
+Import-Module '$modulePath' -Force -ErrorAction Stop
+Start-W11BackdropWatcher -Style '$Style'$darkFlag$menuFlag
+
+# Keep the process alive so the watcher thread stays running
+while (`$true) { Start-Sleep -Seconds 60 }
+"@
+
+        $ps1Path = Join-Path $startupDir 'apply-backdrop.ps1'
+        Set-Content -Path $ps1Path -Value $ps1Content -Encoding UTF8 -Force
+
+        $vbsContent = @"
+' Auto-generated by w11-theming-suite BackdropWatcher
+' Launches the backdrop watcher without a visible PowerShell window.
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & "$ps1Path" & """", 0, False
+"@
+
+        $vbsPath = Join-Path $startupDir 'apply-backdrop.vbs'
+        Set-Content -Path $vbsPath -Value $vbsContent -Encoding ASCII -Force
+
+        $runPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        if (-not (Test-Path $runPath)) {
+            New-Item -Path $runPath -Force | Out-Null
+        }
+
+        $wscriptCmd = "wscript.exe `"$vbsPath`""
+        Set-ItemProperty -Path $runPath -Name 'W11BackdropWatcher' -Value $wscriptCmd
+
+        Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+        Write-Host "Startup registration complete. Backdrop watcher ($Style) will run at login."
+        Write-Host '        ' -NoNewline
+        Write-Host "Scripts: $startupDir" -ForegroundColor DarkGray
+    }
+    catch {
+        Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
+        Write-Host "Failed to register startup: $_"
+    }
+}
+
+function Unregister-W11BackdropWatcherStartup {
+    <#
+    .SYNOPSIS
+        Removes the backdrop watcher login startup registration.
+    .EXAMPLE
+        Unregister-W11BackdropWatcherStartup
+    #>
+    [CmdletBinding()]
+    param()
+
+    try {
+        $runPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+        $runProps = Get-ItemProperty -Path $runPath -ErrorAction SilentlyContinue
+        if ($runProps -and $runProps.PSObject.Properties['W11BackdropWatcher']) {
+            Remove-ItemProperty -Path $runPath -Name 'W11BackdropWatcher' -ErrorAction SilentlyContinue
+        }
+
+        $startupDir = Join-Path $env:LOCALAPPDATA 'w11-theming-suite\BackdropWatcher'
+        if (Test-Path $startupDir) {
+            Remove-Item -Path $startupDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        Write-Host '[OK]    ' -ForegroundColor Green -NoNewline
+        Write-Host 'Backdrop watcher startup registration removed.'
+    }
+    catch {
+        Write-Host '[ERROR] ' -ForegroundColor Red -NoNewline
+        Write-Host "Failed to unregister startup: $_"
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Module exports
 # ---------------------------------------------------------------------------
@@ -1562,5 +1974,9 @@ Export-ModuleMember -Function @(
     'Unregister-W11TaskbarTransparencyStartup',
     'Invoke-TaskbarTAPInject',
     'Set-TaskbarTAPMode',
-    'Get-TaskbarExplorerPid'
+    'Get-TaskbarExplorerPid',
+    'Start-W11BackdropWatcher',
+    'Stop-W11BackdropWatcher',
+    'Register-W11BackdropWatcherStartup',
+    'Unregister-W11BackdropWatcherStartup'
 )

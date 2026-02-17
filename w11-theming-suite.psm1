@@ -80,6 +80,11 @@ Export-ModuleMember -Function @(
     'Invoke-TaskbarTAPInject',
     'Set-TaskbarTAPMode',
     'Get-TaskbarExplorerPid',
+    # NativeTaskbarTransparency (Backdrop Watcher)
+    'Start-W11BackdropWatcher',
+    'Stop-W11BackdropWatcher',
+    'Register-W11BackdropWatcherStartup',
+    'Unregister-W11BackdropWatcherStartup',
     # ThemeOrchestrator
     'Install-W11Theme',
     'Uninstall-W11Theme',
