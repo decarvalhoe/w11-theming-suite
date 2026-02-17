@@ -43,6 +43,8 @@
         'Set-ShellTAPMode',
         'Invoke-StartMenuDiscovery',
         'Invoke-StartMenuTransparency',
+        'Invoke-ActionCenterDiscovery',
+        'Invoke-ActionCenterTransparency',
         'Start-W11BackdropWatcher',
         'Stop-W11BackdropWatcher',
         'Register-W11BackdropWatcherStartup',

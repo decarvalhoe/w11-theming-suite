@@ -2176,6 +2176,111 @@ function Invoke-StartMenuTransparency {
 }
 
 # ===========================================================================
+# Action Center + Notifications Transparency
+# ===========================================================================
+# Convenience wrappers for ShellExperienceHost.exe which hosts the Action
+# Center (Win+A), Notification Center (Win+N), and Quick Settings flyouts.
+# ===========================================================================
+
+function Invoke-ActionCenterDiscovery {
+    <#
+    .SYNOPSIS
+        Runs ShellTAP in discovery mode on ShellExperienceHost.exe.
+    .DESCRIPTION
+        Injects ShellTAP.dll into ShellExperienceHost.exe in discovery mode.
+        Open the Action Center (Win+A) and Notification Center (Win+N)
+        while injected to populate the element tree.
+
+        REQUIRES: Run as Administrator.
+    .PARAMETER LogPath
+        Custom path for the discovery log.
+    .EXAMPLE
+        Invoke-ActionCenterDiscovery
+        # Then press Win+A and Win+N
+        # Check log at native\bin\ShellTAP_ActionCenter_discovery.log
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$LogPath
+    )
+
+    $proc = Get-Process -Name ShellExperienceHost -ErrorAction SilentlyContinue
+    if (-not $proc) {
+        Write-Error "ShellExperienceHost.exe not found. Open Action Center (Win+A) first."
+        return $false
+    }
+
+    Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
+    Write-Host 'Injecting ShellTAP in discovery mode into Action Center host...'
+    Write-Host '        ' -NoNewline
+    Write-Host 'Open Action Center (Win+A) and Notifications (Win+N) to populate elements.' -ForegroundColor DarkGray
+
+    $params = @{
+        TargetProcess = 'ShellExperienceHost'
+        TargetId      = 'ActionCenter'
+        Mode          = 'Default'
+    }
+    if ($LogPath) { $params.LogPath = $LogPath }
+
+    return Invoke-ShellTAPInject @params
+}
+
+function Invoke-ActionCenterTransparency {
+    <#
+    .SYNOPSIS
+        Applies transparency to the Action Center, Notification Center and Quick Settings.
+    .DESCRIPTION
+        Injects ShellTAP.dll into ShellExperienceHost.exe, targeting known
+        XAML background elements. If -TargetElements is not specified, uses
+        default elements for Win11 25H2.
+
+        REQUIRES: Run as Administrator.
+    .PARAMETER Mode
+        The appearance mode: 'Transparent' or 'Acrylic'.
+    .PARAMETER TargetElements
+        Override the default target elements with custom ones from discovery.
+    .EXAMPLE
+        Invoke-ActionCenterTransparency -Mode Transparent
+    .EXAMPLE
+        Invoke-ActionCenterTransparency -Mode Acrylic
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [ValidateSet('Transparent', 'Acrylic')]
+        [string]$Mode = 'Transparent',
+
+        [Parameter()]
+        [string[]]$TargetElements
+    )
+
+    $proc = Get-Process -Name ShellExperienceHost -ErrorAction SilentlyContinue
+    if (-not $proc) {
+        Write-Error "ShellExperienceHost.exe not found. Open Action Center (Win+A) first."
+        return $false
+    }
+
+    # Default known elements (Win11 25H2)
+    if (-not $TargetElements -or $TargetElements.Count -eq 0) {
+        $TargetElements = @(
+            'BackgroundFill:Rectangle',
+            'AcrylicBackgroundFill:Rectangle',
+            'BackgroundStroke:Rectangle',
+            'AcrylicBorder:Border',
+            'ContentBorder:Border',
+            'RootBorder:Border',
+            'BackgroundElement:Rectangle'
+        )
+    }
+
+    Write-Host '[INFO]  ' -ForegroundColor Cyan -NoNewline
+    Write-Host "Injecting ShellTAP into Action Center ($Mode, $($TargetElements.Count) targets)..."
+
+    return Invoke-ShellTAPInject -TargetProcess ShellExperienceHost `
+        -TargetId ActionCenter -TargetElements $TargetElements -Mode $Mode
+}
+
+# ===========================================================================
 # Backdrop Watcher -- persistent DWM backdrop for ALL app windows
 # ===========================================================================
 
@@ -2407,6 +2512,8 @@ Export-ModuleMember -Function @(
     'Set-ShellTAPMode',
     'Invoke-StartMenuDiscovery',
     'Invoke-StartMenuTransparency',
+    'Invoke-ActionCenterDiscovery',
+    'Invoke-ActionCenterTransparency',
     'Start-W11BackdropWatcher',
     'Stop-W11BackdropWatcher',
     'Register-W11BackdropWatcherStartup',
