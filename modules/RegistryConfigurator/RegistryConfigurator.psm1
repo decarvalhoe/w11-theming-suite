@@ -251,29 +251,29 @@ function Set-W11RegistryTheme {
 
         # Convert the hex color to an ABGR DWORD for registry storage.
         if ($accentConfig.color) {
-            $alpha = if ($null -ne $accentConfig.alpha) { [uint32]$accentConfig.alpha } else { 0xFF }
+            $alpha = if ($accentConfig.PSObject.Properties['alpha'] -and $null -ne $accentConfig.alpha) { [uint32]$accentConfig.alpha } else { 0xFF }
             $abgrDword = ConvertTo-ABGRDword -HexColor $accentConfig.color -Alpha $alpha
 
             # Set the DWM AccentColor key.
             $regAccent = $registryMap.AccentColor.AccentColor
             if ($PSCmdlet.ShouldProcess("$($regAccent.Path)\$($regAccent.Name)", "Set accent to 0x$($abgrDword.ToString('X8'))")) {
-                Set-RegistryValue -Path $regAccent.Path -Name $regAccent.Name -Type $regAccent.Type -Value ([int]$abgrDword)
+                Set-RegistryValue -Path $regAccent.Path -Name $regAccent.Name -Type $regAccent.Type -Value ([BitConverter]::ToInt32([BitConverter]::GetBytes($abgrDword), 0))
             }
 
             # Set the Explorer Accent keys to the same ABGR value.
             $regMenu = $registryMap.AccentColor.AccentColorMenu
             if ($PSCmdlet.ShouldProcess("$($regMenu.Path)\$($regMenu.Name)", "Set accent menu color")) {
-                Set-RegistryValue -Path $regMenu.Path -Name $regMenu.Name -Type $regMenu.Type -Value ([int]$abgrDword)
+                Set-RegistryValue -Path $regMenu.Path -Name $regMenu.Name -Type $regMenu.Type -Value ([BitConverter]::ToInt32([BitConverter]::GetBytes($abgrDword), 0))
             }
 
             $regStart = $registryMap.AccentColor.StartColorMenu
             if ($PSCmdlet.ShouldProcess("$($regStart.Path)\$($regStart.Name)", "Set start menu color")) {
-                Set-RegistryValue -Path $regStart.Path -Name $regStart.Name -Type $regStart.Type -Value ([int]$abgrDword)
+                Set-RegistryValue -Path $regStart.Path -Name $regStart.Name -Type $regStart.Type -Value ([BitConverter]::ToInt32([BitConverter]::GetBytes($abgrDword), 0))
             }
         }
 
         # ColorPrevalence: set BOTH the Personalize and DWM keys to the same value.
-        if ($null -ne $accentConfig.colorPrevalence) {
+        if ($accentConfig.PSObject.Properties['colorPrevalence'] -and $null -ne $accentConfig.colorPrevalence) {
             $prevalenceValue = [int]$accentConfig.colorPrevalence
 
             $regPers = $registryMap.AccentColor.ColorPrevalence_Personalize
@@ -288,7 +288,7 @@ function Set-W11RegistryTheme {
         }
 
         # EnableTransparency
-        if ($null -ne $accentConfig.enableTransparency) {
+        if ($accentConfig.PSObject.Properties['enableTransparency'] -and $null -ne $accentConfig.enableTransparency) {
             $regTrans = $registryMap.AccentColor.EnableTransparency
             if ($PSCmdlet.ShouldProcess("$($regTrans.Path)\$($regTrans.Name)", "Set enableTransparency")) {
                 Set-RegistryValue -Path $regTrans.Path -Name $regTrans.Name -Type $regTrans.Type -Value ([int]$accentConfig.enableTransparency)
@@ -296,7 +296,7 @@ function Set-W11RegistryTheme {
         }
 
         # AutoColorization
-        if ($null -ne $accentConfig.autoColorization) {
+        if ($accentConfig.PSObject.Properties['autoColorization'] -and $null -ne $accentConfig.autoColorization) {
             $regAuto = $registryMap.AccentColor.AutoColorization
             if ($PSCmdlet.ShouldProcess("$($regAuto.Path)\$($regAuto.Name)", "Set autoColorization")) {
                 Set-RegistryValue -Path $regAuto.Path -Name $regAuto.Name -Type $regAuto.Type -Value ([int]$accentConfig.autoColorization)
@@ -328,8 +328,10 @@ function Set-W11RegistryTheme {
                 $val = $configValue.Value
 
                 # If the value looks like a hex color string, convert it to a DWORD.
-                if ($val -is [string] -and $val -match '^#?[0-9A-Fa-f]{6,8}$') {
-                    $val = [Convert]::ToInt32($val.TrimStart('#'), 16)
+                if ($val -is [string] -and $val -match '^(0x)?#?[0-9A-Fa-f]{6,8}$') {
+                    $hexStr = $val -replace '^0x', '' -replace '^#', ''
+                    $unsigned = [Convert]::ToUInt32($hexStr, 16)
+                    $val = [BitConverter]::ToInt32([BitConverter]::GetBytes($unsigned), 0)
                 }
 
                 if ($PSCmdlet.ShouldProcess("$($reg.Path)\$($reg.Name)", "Set DWM value to $val")) {

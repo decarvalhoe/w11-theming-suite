@@ -79,6 +79,15 @@
     "composition": 1
   },
   "desktopIcons": null,
+  "transparency": {
+    "taskbar": { "enabled": true, "style": "clear", "color": "#00000000", "allMonitors": true },
+    "taskbarTAP": { "enabled": true, "mode": "Transparent" },
+    "startMenu": { "enabled": true, "mode": "Transparent" },
+    "actionCenter": { "enabled": true, "mode": "Transparent" },
+    "appWindows": { "enabled": true, "backdrop": "mica", "darkMode": true },
+    "contextMenus": { "enabled": true },
+    "persist": true
+  },
   "advanced": {
     "registryOverrides": [
       {
