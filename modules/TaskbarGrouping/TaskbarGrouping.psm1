@@ -511,18 +511,49 @@ using System.Runtime.InteropServices;
 namespace W11TaskbarGrouping {
     public static class WindowActions {
         [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
-        [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")]   public static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")]   public static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")]   public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+        [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")]   public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
         [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
         [DllImport("user32.dll")] public static extern IntPtr SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
         public const int SW_RESTORE     = 9;
         public const int SW_SHOW        = 5;
         public const int SW_SHOWNOACTIVATE = 4;
-        public static readonly IntPtr HWND_TOP    = new IntPtr(0);
-        public static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
-        public const uint SWP_NOSIZE     = 0x0001;
-        public const uint SWP_NOMOVE     = 0x0002;
-        public const uint SWP_SHOWWINDOW = 0x0040;
+        public static readonly IntPtr HWND_TOP       = new IntPtr(0);
+        public static readonly IntPtr HWND_BOTTOM    = new IntPtr(1);
+        public static readonly IntPtr HWND_TOPMOST   = new IntPtr(-1);
+        public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+        public const uint SWP_NOSIZE       = 0x0001;
+        public const uint SWP_NOMOVE       = 0x0002;
+        public const uint SWP_NOACTIVATE   = 0x0010;
+        public const uint SWP_SHOWWINDOW   = 0x0040;
+
+        // Canonical Win32 "force this window to foreground" sequence.
+        // Required on Win11 24H2+ where SetForegroundWindow alone is rejected
+        // unless the calling thread is already attached to the foreground
+        // window's thread.
+        public static void ForceForeground(IntPtr h) {
+            if (h == IntPtr.Zero) return;
+            IntPtr fg = GetForegroundWindow();
+            if (fg == h) return;
+            uint fgPid;
+            uint fgThread = GetWindowThreadProcessId(fg, out fgPid);
+            uint myThread = GetCurrentThreadId();
+            bool attached = false;
+            if (fgThread != 0 && fgThread != myThread) {
+                attached = AttachThreadInput(myThread, fgThread, true);
+            }
+            BringWindowToTop(h);
+            SetForegroundWindow(h);
+            if (attached) {
+                AttachThreadInput(myThread, fgThread, false);
+            }
+        }
     }
 }
 "@
@@ -579,28 +610,45 @@ function Show-W11TaskbarGroup {
         return
     }
 
-    $firstHwnd = $null
+    # Phase 1 — restore from minimized AND make each window TOPMOST.
+    # SetWindowPos(HWND_TOP) called sequentially doesn't keep prior windows
+    # on top: each new HWND_TOP call demotes the previous one. By making
+    # them all HWND_TOPMOST in phase 1, every window pops above all
+    # non-topmost windows simultaneously. Phase 2 then drops them back to
+    # NOTOPMOST so they don't stay glued above other apps forever.
+    $flags = [W11TaskbarGrouping.WindowActions]::SWP_NOSIZE -bor
+             [W11TaskbarGrouping.WindowActions]::SWP_NOMOVE -bor
+             [W11TaskbarGrouping.WindowActions]::SWP_SHOWWINDOW
+    $firstHwnd = $procs[0].MainWindowHandle
+
     foreach ($p in $procs) {
         $h = $p.MainWindowHandle
-        if ($null -eq $firstHwnd) { $firstHwnd = $h }
         if ([W11TaskbarGrouping.WindowActions]::IsIconic($h)) {
-            [W11TaskbarGrouping.WindowActions]::ShowWindowAsync($h, [W11TaskbarGrouping.WindowActions]::SW_RESTORE) | Out-Null
+            [W11TaskbarGrouping.WindowActions]::ShowWindowAsync(
+                $h, [W11TaskbarGrouping.WindowActions]::SW_RESTORE) | Out-Null
         }
-        # SWP_SHOWWINDOW + HWND_TOP without changing size/position: pure Z-order raise
         [W11TaskbarGrouping.WindowActions]::SetWindowPos(
-            $h,
-            [W11TaskbarGrouping.WindowActions]::HWND_TOP,
+            $h, [W11TaskbarGrouping.WindowActions]::HWND_TOPMOST,
+            0, 0, 0, 0, $flags) | Out-Null
+    }
+
+    # Phase 2 — drop everyone back to non-topmost (preserving Z-order from
+    # phase 1: all 6 are now at the very top of the regular window stack).
+    foreach ($p in $procs) {
+        [W11TaskbarGrouping.WindowActions]::SetWindowPos(
+            $p.MainWindowHandle,
+            [W11TaskbarGrouping.WindowActions]::HWND_NOTOPMOST,
             0, 0, 0, 0,
             [W11TaskbarGrouping.WindowActions]::SWP_NOSIZE -bor
             [W11TaskbarGrouping.WindowActions]::SWP_NOMOVE -bor
-            [W11TaskbarGrouping.WindowActions]::SWP_SHOWWINDOW
-        ) | Out-Null
+            [W11TaskbarGrouping.WindowActions]::SWP_NOACTIVATE) | Out-Null
     }
 
-    # SetForegroundWindow only works reliably on a window owned by the
-    # current foreground thread. We attach to the foreground thread first.
+    # Phase 3 — actually focus ONE window (Windows allows only one
+    # foreground at a time). ForceForeground uses the AttachThreadInput
+    # trick required by Win11 24H2+'s strict SetForegroundWindow rules.
     $hwndToFocus = if ($FocusFirst) { $firstHwnd } else { $procs[-1].MainWindowHandle }
-    [W11TaskbarGrouping.WindowActions]::SetForegroundWindow($hwndToFocus) | Out-Null
+    [W11TaskbarGrouping.WindowActions]::ForceForeground($hwndToFocus)
 
     return [pscustomobject]@{
         Profile     = $Profile
