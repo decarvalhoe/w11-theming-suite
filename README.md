@@ -290,9 +290,36 @@ The desktop app uses a persistent PowerShell child process as its backend:
 2. IPC handlers in `main.js` bridge Electron's `ipcMain` to PowerShell commands with input validation and escaping
 3. The React renderer uses Zustand for state management and a debounced `useLivePreview` hook that applies changes to the live system as the user adjusts controls
 
+### Taskbar Grouping (multi-instance applications)
+Force Windows 11 to group multiple instances of an application into a single taskbar button by profile. Designed for terminal multiplexers (WezTerm, Windows Terminal) where launching N independent windows creates N separate taskbar entries that hide overflow at the right edge.
+
+The module combines three native techniques in cascade, applied in order of effectiveness on Windows 11 26200+:
+
+1. **Per-profile EXE hardlink** — creates `wezterm-gui-<profile>.exe` as an NTFS hardlink (zero-byte cost) to the original EXE in `%LOCALAPPDATA%\W11TaskbarGroupingAliases\`. Windows 11 26200+ groups taskbar buttons by image path of the backing process, so distinct hardlink names = distinct taskbar groups. **This is the only technique that reliably works on Win11 26200+** where Microsoft regressed AUMID-based grouping in the new XAML taskbar.
+2. **Win32 window class override** — for apps that support it (`wezterm start --class <NAME>`), pass a per-profile class so even if EXE hardlinks ever fail, the OS has a second disambiguator.
+3. **`PKEY_AppUserModel_ID` per-window** — set via `SHGetPropertyStoreForWindow` after the window is shown. Officially the canonical Windows API for taskbar grouping, but Win11 26200 only honors it inconsistently. Set as belt-and-suspenders.
+
+Companion runtime: [universal-project-launcher](https://github.com/decarvalhoe/universal-project-launcher) (`wezterm_monitor.ps1`) consumes this module via `Get-W11TaskbarGroupingLaunchSpec` to spawn 6 SSH/tmux WezTerm windows per project (RBOK, NOMOS, 42T) in 3 grouped taskbar buttons instead of 18 separate icons.
+
+```powershell
+# One-shot config: create alias for WezTerm rbok profile
+Set-W11TaskbarGrouping `
+    -SourceExe 'C:\Program Files\WezTerm\wezterm-gui.exe' `
+    -Profile 'rbok' -WithDependencies -ForceCombineRegistry -RestartExplorer
+
+# Get the launch spec a downstream launcher should use
+$spec = Get-W11TaskbarGroupingLaunchSpec `
+    -SourceExe 'C:\Program Files\WezTerm\wezterm-gui.exe' `
+    -Profile 'rbok' -App wezterm
+Start-Process -FilePath $spec.ExecutablePath -ArgumentList $spec.ExtraArgs
+
+# Inspect grouping state
+Get-W11TaskbarGrouping -Profile rbok | Format-List
+```
+
 ---
 
-## All Exported Commands (51)
+## All Exported Commands (60)
 
 <details>
 <summary>Click to expand full command list</summary>

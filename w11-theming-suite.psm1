@@ -15,6 +15,7 @@ $Modules = @(
     'WallpaperManager',
     'TranslucentTBIntegration',
     'NativeTaskbarTransparency',
+    'TaskbarGrouping',
     'ThemeOrchestrator'
 )
 
@@ -101,6 +102,16 @@ Export-ModuleMember -Function @(
     'Register-W11TransparencyPersistence',
     'Unregister-W11TransparencyPersistence',
     'Get-W11TransparencyPersistence',
+    # TaskbarGrouping (per-profile EXE alias + AUMID + window class)
+    'Set-W11TaskbarGrouping',
+    'Get-W11TaskbarGrouping',
+    'Remove-W11TaskbarGrouping',
+    'New-W11TaskbarExeAlias',
+    'Get-W11TaskbarExeAlias',
+    'Remove-W11TaskbarExeAlias',
+    'Set-W11WindowAumid',
+    'Get-W11WindowAumid',
+    'Get-W11TaskbarGroupingLaunchSpec',
     # ThemeOrchestrator
     'Install-W11Theme',
     'Uninstall-W11Theme',
