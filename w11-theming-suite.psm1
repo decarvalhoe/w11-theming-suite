@@ -112,6 +112,10 @@ Export-ModuleMember -Function @(
     'Set-W11WindowAumid',
     'Get-W11WindowAumid',
     'Get-W11TaskbarGroupingLaunchSpec',
+    # TaskbarGrouping (opt-in ExplorerPatcher integration)
+    'Test-W11ExplorerPatcherInstalled',
+    'Install-W11ExplorerPatcherHelper',
+    'Set-W11ExplorerPatcherTaskbarGrouping',
     # ThemeOrchestrator
     'Install-W11Theme',
     'Uninstall-W11Theme',

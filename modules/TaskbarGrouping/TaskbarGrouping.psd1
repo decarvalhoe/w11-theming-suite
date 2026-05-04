@@ -23,7 +23,12 @@
         'Get-W11WindowAumid',
 
         # Helper for downstream launcher integrations
-        'Get-W11TaskbarGroupingLaunchSpec'
+        'Get-W11TaskbarGroupingLaunchSpec',
+
+        # Opt-in ExplorerPatcher integration (only third-party exception)
+        'Test-W11ExplorerPatcherInstalled',
+        'Install-W11ExplorerPatcherHelper',
+        'Set-W11ExplorerPatcherTaskbarGrouping'
     )
     CmdletsToExport    = @()
     VariablesToExport  = @()

@@ -493,6 +493,204 @@ function Get-W11TaskbarGroupingLaunchSpec {
     }
 }
 
+# ===========================================================================
+# ExplorerPatcher integration — opt-in escape hatch for Win11 26200+ where
+# Microsoft regressed the XAML taskbar's grouping logic to the point where
+# AUMID, window class AND distinct EXE names are all ignored.
+#
+# This is the ONLY exception in this project to the "no third-party software"
+# rule. It is opt-in only (the user must explicitly call
+# Install-W11ExplorerPatcherHelper). Once installed, ExplorerPatcher restores
+# the Windows 10 taskbar that honors all the native grouping mechanisms
+# implemented above.
+#
+# Project: https://github.com/valinet/ExplorerPatcher (MIT-licensed)
+# ===========================================================================
+
+function Test-W11ExplorerPatcherInstalled {
+    <#
+    .SYNOPSIS
+        Detect whether ExplorerPatcher is installed on this machine.
+
+    .DESCRIPTION
+        Checks three independent signals: the registry key created at install,
+        the dxgi.dll hook in System32 left by EP, and a winget upgrade query.
+        Returns a structured object with version + signals so callers can
+        decide whether to install / upgrade.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $regKey      = 'HKCU:\Software\ExplorerPatcher'
+    $hasReg      = Test-Path $regKey
+    $regVersion  = if ($hasReg) {
+        $rv = Get-ItemProperty $regKey -ErrorAction SilentlyContinue
+        if ($rv -and ($rv.PSObject.Properties.Name -contains 'Version')) { $rv.Version } else { $null }
+    } else { $null }
+    $dxgiPath    = "$env:SystemRoot\System32\dxgi.dll.local\ep_taskbar.2.dll"
+    $epDllPath   = "$env:SystemRoot\dxgi.dll"
+    $hasDll      = (Test-Path $dxgiPath) -or (Test-Path $epDllPath)
+    $wingetVer   = $null
+    try {
+        $w = winget list --id valinet.ExplorerPatcher --exact 2>$null | Select-String -Pattern 'valinet\.ExplorerPatcher' | Select-Object -First 1
+        if ($w) {
+            $parts = ($w.Line -split '\s{2,}') | Where-Object { $_ }
+            if ($parts.Count -ge 3) { $wingetVer = $parts[2] }
+        }
+    } catch {}
+
+    return [pscustomobject]@{
+        Installed       = ($hasReg -or $hasDll -or [bool]$wingetVer)
+        RegistryPresent = $hasReg
+        DllPresent      = $hasDll
+        RegistryVersion = $regVersion
+        WingetVersion   = $wingetVer
+    }
+}
+
+function Install-W11ExplorerPatcherHelper {
+    <#
+    .SYNOPSIS
+        Install ExplorerPatcher (opt-in third-party escape hatch).
+
+    .DESCRIPTION
+        Tries winget first (silent install). Falls back to downloading
+        ep_setup.exe from the latest GitHub release and launching the
+        installer (interactive).
+
+        After install, optionally calls Set-W11ExplorerPatcherTaskbarGrouping
+        to switch the taskbar to "Windows 10 style" where grouping works.
+
+    .PARAMETER UseWinget
+        Force winget path. Default: try winget, fall back to GitHub.
+
+    .PARAMETER Configure
+        After install, call Set-W11ExplorerPatcherTaskbarGrouping to enable
+        the Win10 taskbar with grouping = "Always combine".
+
+    .EXAMPLE
+        Install-W11ExplorerPatcherHelper -Configure
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [switch] $UseWinget,
+        [switch] $Configure
+    )
+
+    $existing = Test-W11ExplorerPatcherInstalled
+    if ($existing.Installed) {
+        Write-Host "ExplorerPatcher already installed (registry=$($existing.RegistryPresent), dll=$($existing.DllPresent), winget=$($existing.WingetVersion))."
+        if (-not $Configure) { return $existing }
+    }
+
+    if ($PSCmdlet.ShouldProcess('ExplorerPatcher', 'Install')) {
+        $wingetOk = $false
+        try {
+            $wgPath = Get-Command winget -ErrorAction SilentlyContinue
+            if ($wgPath) {
+                Write-Host 'Installing via winget...'
+                $args = @('install','--id','valinet.ExplorerPatcher','--exact','--accept-package-agreements','--accept-source-agreements','--silent')
+                $p = Start-Process winget -ArgumentList $args -Wait -PassThru -NoNewWindow
+                if ($p.ExitCode -eq 0) { $wingetOk = $true }
+                else { Write-Warning "winget exited with code $($p.ExitCode); will try GitHub release fallback." }
+            }
+        } catch {
+            Write-Warning "winget install failed: $_"
+        }
+
+        if (-not $wingetOk) {
+            Write-Host 'Downloading latest ep_setup.exe from GitHub release...'
+            $relJson = & gh api repos/valinet/ExplorerPatcher/releases/latest 2>$null
+            if (-not $relJson) {
+                Write-Warning 'gh CLI not available or release fetch failed. Aborting install.'
+                return Test-W11ExplorerPatcherInstalled
+            }
+            $rel = $relJson | ConvertFrom-Json
+            $asset = $rel.assets | Where-Object { $_.name -eq 'ep_setup.exe' } | Select-Object -First 1
+            if (-not $asset) {
+                Write-Warning 'No ep_setup.exe asset found in latest release. Aborting.'
+                return Test-W11ExplorerPatcherInstalled
+            }
+            $tmpExe = Join-Path $env:TEMP 'ep_setup.exe'
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $tmpExe -UseBasicParsing
+            Write-Host "Launching $tmpExe (UAC prompt expected)..."
+            Start-Process $tmpExe -Verb RunAs -Wait
+        }
+    }
+
+    $after = Test-W11ExplorerPatcherInstalled
+    if ($Configure -and $after.Installed) {
+        Set-W11ExplorerPatcherTaskbarGrouping -Style 'Windows10' -Combine 'Always' -RestartExplorer | Out-Null
+    }
+    return $after
+}
+
+function Set-W11ExplorerPatcherTaskbarGrouping {
+    <#
+    .SYNOPSIS
+        Configure ExplorerPatcher for reliable taskbar grouping.
+
+    .DESCRIPTION
+        Writes the registry keys ExplorerPatcher reads at startup:
+          - Taskbar_Style: 0 = Windows 10 style (grouping works), 1 = Win11
+          - TaskbarGlomming / TaskbarGlomLevel as documented by EP
+        Optionally restarts explorer so the change takes effect.
+
+    .PARAMETER Style
+        'Windows10' (recommended for grouping), 'Windows11' or 'Auto'.
+
+    .PARAMETER Combine
+        'Always' (default), 'WhenFull' or 'Never'.
+
+    .EXAMPLE
+        Set-W11ExplorerPatcherTaskbarGrouping -Style Windows10 -Combine Always -RestartExplorer
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [ValidateSet('Windows10','Windows11','Auto')]
+        [string] $Style          = 'Windows10',
+
+        [ValidateSet('Always','WhenFull','Never')]
+        [string] $Combine        = 'Always',
+
+        [switch] $RestartExplorer
+    )
+
+    if (-not (Test-W11ExplorerPatcherInstalled).Installed) {
+        Write-Warning 'ExplorerPatcher is not installed. Call Install-W11ExplorerPatcherHelper first.'
+        return
+    }
+
+    $regKey = 'HKCU:\Software\ExplorerPatcher'
+    if (-not (Test-Path $regKey)) {
+        New-Item -Path $regKey -Force | Out-Null
+    }
+
+    $styleVal = switch ($Style) { 'Windows10' { 0 } 'Windows11' { 1 } 'Auto' { 2 } }
+    $combVal  = switch ($Combine) { 'Always' { 0 } 'WhenFull' { 1 } 'Never' { 2 } }
+
+    if ($PSCmdlet.ShouldProcess('ExplorerPatcher', "Style=$Style, Combine=$Combine")) {
+        Set-ItemProperty -Path $regKey -Name 'Taskbar_Style'     -Value $styleVal -Type DWord -Force
+        Set-ItemProperty -Path $regKey -Name 'TaskbarGlomLevel'  -Value $combVal  -Type DWord -Force
+        # Also keep the system-wide TaskbarGlomLevel in sync
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name TaskbarGlomLevel    -Value $combVal -Type DWord -Force
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' -Name MMTaskbarGlomLevel  -Value $combVal -Type DWord -Force
+    }
+
+    if ($RestartExplorer) {
+        Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
+        Start-Process explorer.exe
+    }
+
+    return [pscustomobject]@{
+        Style    = $Style
+        Combine  = $Combine
+        Applied  = $true
+        Restart  = [bool]$RestartExplorer
+    }
+}
+
 Export-ModuleMember -Function @(
     'Set-W11TaskbarGrouping',
     'Get-W11TaskbarGrouping',
@@ -502,5 +700,9 @@ Export-ModuleMember -Function @(
     'Remove-W11TaskbarExeAlias',
     'Set-W11WindowAumid',
     'Get-W11WindowAumid',
-    'Get-W11TaskbarGroupingLaunchSpec'
+    'Get-W11TaskbarGroupingLaunchSpec',
+    # Opt-in ExplorerPatcher integration (only third-party escape hatch)
+    'Test-W11ExplorerPatcherInstalled',
+    'Install-W11ExplorerPatcherHelper',
+    'Set-W11ExplorerPatcherTaskbarGrouping'
 )

@@ -317,9 +317,27 @@ Start-Process -FilePath $spec.ExecutablePath -ArgumentList $spec.ExtraArgs
 Get-W11TaskbarGrouping -Profile rbok | Format-List
 ```
 
+#### Last resort: ExplorerPatcher integration (opt-in escape hatch)
+
+On **Windows 11 build 26200+** Microsoft regressed the new XAML taskbar's grouping logic to the point where it ignores AUMID, window class **and** distinct EXE names. Native techniques alone are insufficient on this build.
+
+The module ships an opt-in helper to install [ExplorerPatcher](https://github.com/valinet/ExplorerPatcher) (MIT-licensed, ~12 MB) which restores the Windows 10 taskbar that honors all the native grouping mechanisms above. **This is the only third-party software exception in this project**, and it is opt-in only — the user must explicitly call the helper.
+
+```powershell
+# Detect if EP is already installed
+Test-W11ExplorerPatcherInstalled
+
+# Install via winget (or fall back to GitHub release download) +
+# auto-configure for grouping
+Install-W11ExplorerPatcherHelper -Configure
+
+# Or just configure if already installed
+Set-W11ExplorerPatcherTaskbarGrouping -Style Windows10 -Combine Always -RestartExplorer
+```
+
 ---
 
-## All Exported Commands (60)
+## All Exported Commands (63)
 
 <details>
 <summary>Click to expand full command list</summary>
