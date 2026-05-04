@@ -63,6 +63,7 @@
         'Set-W11WindowAumid',
         'Get-W11WindowAumid',
         'Get-W11TaskbarGroupingLaunchSpec',
+        'Show-W11TaskbarGroup',
         'Test-W11ExplorerPatcherInstalled',
         'Install-W11ExplorerPatcherHelper',
         'Set-W11ExplorerPatcherTaskbarGrouping',

@@ -494,6 +494,123 @@ function Get-W11TaskbarGroupingLaunchSpec {
 }
 
 # ===========================================================================
+# Group focus management
+# ===========================================================================
+# Once windows are taskbar-grouped, clicking the group button only shows the
+# thumbnail strip — it doesn't bring all 6 windows to the foreground at once.
+# These helpers do exactly that: focus all windows of a profile in one shot.
+#
+# Useful for "switch context": Ctrl+Alt+R brings up all RBOK windows, then
+# Ctrl+Alt+N brings up all NOMOS windows over them.
+# ===========================================================================
+
+if (-not ('W11TaskbarGrouping.WindowActions' -as [type])) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+namespace W11TaskbarGrouping {
+    public static class WindowActions {
+        [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
+        [DllImport("user32.dll")] public static extern IntPtr SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        public const int SW_RESTORE     = 9;
+        public const int SW_SHOW        = 5;
+        public const int SW_SHOWNOACTIVATE = 4;
+        public static readonly IntPtr HWND_TOP    = new IntPtr(0);
+        public static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
+        public const uint SWP_NOSIZE     = 0x0001;
+        public const uint SWP_NOMOVE     = 0x0002;
+        public const uint SWP_SHOWWINDOW = 0x0040;
+    }
+}
+"@
+}
+
+function Show-W11TaskbarGroup {
+    <#
+    .SYNOPSIS
+        Bring all windows of a profile to the foreground at once.
+
+    .DESCRIPTION
+        For each window of the profile (resolved via the per-profile EXE
+        alias hardlink), restores it from minimized state and raises it to
+        the top of the Z-order. The LAST raised window receives focus.
+
+        Useful when 6 instances are taskbar-grouped (e.g. via
+        ExplorerPatcher) and clicking the group only shows thumbnails — this
+        function brings ALL 6 to front in a single action.
+
+    .PARAMETER Profile
+        Name of the grouping profile (e.g. 'rbok', 'nomos', '42t').
+
+    .PARAMETER FocusFirst
+        Activate the FIRST window after raising all (default: last raised
+        gets focus, which is whichever the OS returns last in process
+        enumeration order).
+
+    .EXAMPLE
+        Show-W11TaskbarGroup -Profile rbok
+
+    .EXAMPLE
+        # Bound to a global hotkey in the system tray launcher:
+        Show-W11TaskbarGroup -Profile nomos
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Profile,
+        [switch]              $FocusFirst
+    )
+
+    $alias = Get-W11TaskbarExeAlias -Profile $Profile | Select-Object -First 1
+    if (-not $alias) {
+        Write-Warning "No alias found for profile '$Profile'. Call Set-W11TaskbarGrouping first."
+        return
+    }
+    $aliasNameOnly = [System.IO.Path]::GetFileNameWithoutExtension($alias.AliasName)
+
+    $procs = Get-Process | Where-Object {
+        $_.Name -ieq $aliasNameOnly -and $_.MainWindowHandle -ne [IntPtr]::Zero
+    } | Sort-Object Id
+
+    if (-not $procs) {
+        Write-Warning "No running windows found for profile '$Profile' (alias: $aliasNameOnly)."
+        return
+    }
+
+    $firstHwnd = $null
+    foreach ($p in $procs) {
+        $h = $p.MainWindowHandle
+        if ($null -eq $firstHwnd) { $firstHwnd = $h }
+        if ([W11TaskbarGrouping.WindowActions]::IsIconic($h)) {
+            [W11TaskbarGrouping.WindowActions]::ShowWindowAsync($h, [W11TaskbarGrouping.WindowActions]::SW_RESTORE) | Out-Null
+        }
+        # SWP_SHOWWINDOW + HWND_TOP without changing size/position: pure Z-order raise
+        [W11TaskbarGrouping.WindowActions]::SetWindowPos(
+            $h,
+            [W11TaskbarGrouping.WindowActions]::HWND_TOP,
+            0, 0, 0, 0,
+            [W11TaskbarGrouping.WindowActions]::SWP_NOSIZE -bor
+            [W11TaskbarGrouping.WindowActions]::SWP_NOMOVE -bor
+            [W11TaskbarGrouping.WindowActions]::SWP_SHOWWINDOW
+        ) | Out-Null
+    }
+
+    # SetForegroundWindow only works reliably on a window owned by the
+    # current foreground thread. We attach to the foreground thread first.
+    $hwndToFocus = if ($FocusFirst) { $firstHwnd } else { $procs[-1].MainWindowHandle }
+    [W11TaskbarGrouping.WindowActions]::SetForegroundWindow($hwndToFocus) | Out-Null
+
+    return [pscustomobject]@{
+        Profile     = $Profile
+        AliasName   = $alias.AliasName
+        WindowsCount= $procs.Count
+        FocusedHwnd = $hwndToFocus
+    }
+}
+
+# ===========================================================================
 # ExplorerPatcher integration — opt-in escape hatch for Win11 26200+ where
 # Microsoft regressed the XAML taskbar's grouping logic to the point where
 # AUMID, window class AND distinct EXE names are all ignored.
@@ -701,6 +818,8 @@ Export-ModuleMember -Function @(
     'Set-W11WindowAumid',
     'Get-W11WindowAumid',
     'Get-W11TaskbarGroupingLaunchSpec',
+    # Group focus management (bring all 6 windows to front in one shot)
+    'Show-W11TaskbarGroup',
     # Opt-in ExplorerPatcher integration (only third-party escape hatch)
     'Test-W11ExplorerPatcherInstalled',
     'Install-W11ExplorerPatcherHelper',

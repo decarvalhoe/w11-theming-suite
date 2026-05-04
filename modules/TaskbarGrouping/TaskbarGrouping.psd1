@@ -25,6 +25,9 @@
         # Helper for downstream launcher integrations
         'Get-W11TaskbarGroupingLaunchSpec',
 
+        # Group focus management (bring all windows to front in one shot)
+        'Show-W11TaskbarGroup',
+
         # Opt-in ExplorerPatcher integration (only third-party exception)
         'Test-W11ExplorerPatcherInstalled',
         'Install-W11ExplorerPatcherHelper',
