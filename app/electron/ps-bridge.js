@@ -79,7 +79,14 @@ class PowerShellBridge extends EventEmitter {
       // FIX C1: Do NOT double-escape backslashes. PowerShell single-quoted strings
       // treat backslashes as literal characters — no escaping needed.
       const modulePath = path.join(this.projectRoot, 'w11-theming-suite.psd1');
-      const initCmd = `Import-Module '${modulePath}' -Force; ${SENTINEL_CMD}\n`;
+      // Force UTF-8 encoding for both console output and pipeline strings.
+      // Without this, PowerShell uses the system OEM codepage (e.g. Windows-1252),
+      // which mangles non-ASCII characters (like em-dashes) and breaks JSON.parse.
+      const utf8Setup = [
+        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+        '$OutputEncoding = [System.Text.Encoding]::UTF8',
+      ].join('; ');
+      const initCmd = `${utf8Setup}; Import-Module '${modulePath}' -Force; ${SENTINEL_CMD}\n`;
 
       this.current = {
         resolve: () => {

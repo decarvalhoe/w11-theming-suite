@@ -3,10 +3,11 @@ import { HexColorPicker } from 'react-colorful';
 
 /**
  * AlphaColorPicker — For "0xAARRGGBB" DWM color values.
- * Displays a color swatch + alpha slider.
+ * Displays a color swatch + alpha slider + editable hex text field.
  */
 export default function AlphaColorPicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
+  const [textInput, setTextInput] = useState('');
   const popover = useRef(null);
 
   // Parse "0xAARRGGBB" → { alpha, hex }
@@ -17,7 +18,7 @@ export default function AlphaColorPicker({ value, onChange }) {
     const r = clean.substring(2, 4);
     const g = clean.substring(4, 6);
     const b = clean.substring(6, 8);
-    return { alpha: a, hex: `#${r}${g}${b}` };
+    return { alpha: isNaN(a) ? 255 : a, hex: `#${r}${g}${b}` };
   }, []);
 
   // Format back to "0xAARRGGBB"
@@ -29,6 +30,11 @@ export default function AlphaColorPicker({ value, onChange }) {
 
   const { alpha, hex } = parse(value);
 
+  // Sync text input when external value changes
+  useEffect(() => {
+    setTextInput(value || '0x00000000');
+  }, [value]);
+
   const handleColorChange = useCallback((newHex) => {
     onChange(format(newHex, alpha));
   }, [alpha, onChange, format]);
@@ -36,6 +42,26 @@ export default function AlphaColorPicker({ value, onChange }) {
   const handleAlphaChange = useCallback((e) => {
     onChange(format(hex, Number(e.target.value)));
   }, [hex, onChange, format]);
+
+  // Handle text field commit
+  const commitText = useCallback(() => {
+    const trimmed = textInput.trim();
+    // Accept 0xAARRGGBB or AARRGGBB (8 hex chars with optional 0x prefix)
+    if (/^(0x)?[0-9a-fA-F]{8}$/i.test(trimmed)) {
+      const clean = trimmed.replace(/^0x/i, '');
+      onChange('0x' + clean.toUpperCase());
+      return;
+    }
+    // Accept #RRGGBB (6 hex chars) — use current alpha
+    if (/^#?[0-9a-fA-F]{6}$/.test(trimmed)) {
+      const hexPart = trimmed.replace('#', '');
+      const a = Math.max(0, Math.min(255, alpha)).toString(16).padStart(2, '0').toUpperCase();
+      onChange(`0x${a}${hexPart.toUpperCase()}`);
+      return;
+    }
+    // Invalid — revert
+    setTextInput(value || '0x00000000');
+  }, [textInput, alpha, value, onChange]);
 
   useEffect(() => {
     if (!open) return;
@@ -53,9 +79,19 @@ export default function AlphaColorPicker({ value, onChange }) {
         border: '1px solid var(--border-color)', background: hex,
         opacity: Math.max(0.15, alpha / 255), cursor: 'pointer', flexShrink: 0
       }} />
-      <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
-        {value || '0x00000000'}
-      </span>
+      <input
+        type="text"
+        value={textInput}
+        onChange={(e) => setTextInput(e.target.value)}
+        onBlur={commitText}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.target.blur(); } }}
+        spellCheck={false}
+        style={{
+          fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)',
+          background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+          borderRadius: 'var(--radius-sm)', padding: '3px 6px', width: 90, outline: 'none'
+        }}
+      />
       {open && (
         <div ref={popover} style={{
           position: 'absolute', top: 34, left: 0, zIndex: 1000,

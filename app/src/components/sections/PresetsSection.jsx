@@ -4,6 +4,7 @@ import useThemeStore from '../../store/themeStore';
 export default function PresetsSection() {
   const [presets, setPresets] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [saveName, setSaveName] = useState('');
   const theme = useThemeStore((s) => s.theme);
   const loadTheme = useThemeStore((s) => s.loadTheme);
@@ -16,8 +17,10 @@ export default function PresetsSection() {
     try {
       const result = await window.themeAPI.listPresets();
       if (result.success) setPresets(result.data || []);
+      else setLastAction('Failed to load presets: ' + (result.error || 'Unknown error'), false);
     } catch (err) {
       console.error('Failed to fetch presets:', err);
+      setLastAction('Failed to fetch presets: ' + err.message, false);
     }
     setLoading(false);
   };
@@ -28,12 +31,14 @@ export default function PresetsSection() {
     try {
       const fileName = (preset.FileName || preset.Name || '').replace(/\.json$/, '');
       if (!fileName) { setLastAction('Load error: preset has no filename', false); return; }
-      const result = await window.themeAPI.loadPreset(fileName);
+      const result = await window.themeAPI.loadPreset(fileName, preset.Source);
       if (result.success) {
         loadTheme(result.data);
         // Apply full theme
         await window.themeAPI.applyFullTheme(result.data);
         setLastAction(`Loaded preset: ${preset.Name}`);
+      } else {
+        setLastAction('Load error: ' + (result.error || 'Unknown error'), false);
       }
     } catch (err) {
       setLastAction('Load error: ' + err.message, false);
@@ -42,6 +47,7 @@ export default function PresetsSection() {
 
   const handleSave = async () => {
     if (!saveName.trim()) return;
+    setSaving(true);
     try {
       const configToSave = {
         ...theme,
@@ -56,10 +62,13 @@ export default function PresetsSection() {
         markClean();
         setSaveName('');
         fetchPresets();
+      } else {
+        setLastAction('Save failed: ' + (result.error || 'Unknown error'), false);
       }
     } catch (err) {
       setLastAction('Save error: ' + err.message, false);
     }
+    setSaving(false);
   };
 
   return (
@@ -73,13 +82,14 @@ export default function PresetsSection() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input type="text" value={saveName} onChange={(e) => setSaveName(e.target.value)}
             placeholder="my-custom-theme"
+            onKeyDown={(e) => { if (e.key === 'Enter' && saveName.trim()) handleSave(); }}
             style={{
               background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
               borderRadius: 'var(--radius-sm)', padding: '6px 12px', color: 'var(--text-primary)',
               fontSize: 13, flex: 1, maxWidth: 300
             }} />
-          <button className="btn btn--primary" onClick={handleSave} disabled={!saveName.trim()}>
-            Save
+          <button className="btn btn--primary" onClick={handleSave} disabled={!saveName.trim() || saving}>
+            {saving ? 'Saving...' : 'Save'}
           </button>
         </div>
       </div>

@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('themeAPI', {
   listPresets: () => ipcRenderer.invoke('ps:list-presets'),
 
   /** Load a preset by name and return its config. */
-  loadPreset: (name) => ipcRenderer.invoke('ps:load-preset', name),
+  loadPreset: (name, source) => ipcRenderer.invoke('ps:load-preset', name, source),
 
   /** Save current config as a user preset. */
   savePreset: (name, config) => ipcRenderer.invoke('ps:save-preset', name, config),

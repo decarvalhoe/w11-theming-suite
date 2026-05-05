@@ -3,7 +3,7 @@
     "name": "Pure Black",
     "version": "2.0.0",
     "author": "w11-theming-suite",
-    "description": "Full deep black theme — forces #010101 on all registry-reachable surfaces (taskbar, Start Menu, title bars, borders, Win32 backgrounds). WinUI app bodies (Settings, Store) remain dark grey as they use hardcoded XAML theme resources.",
+    "description": "Full deep black theme - forces #010101 on all registry-reachable surfaces (taskbar, Start Menu, title bars, borders, Win32 backgrounds). WinUI app bodies (Settings, Store) remain dark grey as they use hardcoded XAML theme resources.",
     "tags": ["black", "oled", "pure", "minimal", "deep-black"]
   },
   "mode": {

@@ -128,24 +128,27 @@ function ConvertFrom-ABGRDword {
 # ---------------------------------------------------------------------------
 function Send-SettingsChangeNotification {
     [CmdletBinding()]
-    param()
+    param(
+        [string[]]$Channels = @('ImmersiveColorSet')
+    )
 
     Add-W11NativeMethods
 
     $HWND_BROADCAST = [IntPtr][long][W11ThemeSuite.NativeMethods]::HWND_BROADCAST
-    $result = [UIntPtr]::Zero
 
-    [W11ThemeSuite.NativeMethods]::SendMessageTimeout(
-        $HWND_BROADCAST,
-        [W11ThemeSuite.NativeMethods]::WM_SETTINGCHANGE,
-        [UIntPtr]::Zero,
-        'ImmersiveColorSet',
-        0x0002,   # SMTO_ABORTIFHUNG
-        5000,     # timeout in ms
-        [ref]$result
-    ) | Out-Null
-
-    Write-Verbose 'Broadcasted WM_SETTINGCHANGE (ImmersiveColorSet) to all top-level windows.'
+    foreach ($channel in $Channels) {
+        $result = [UIntPtr]::Zero
+        [W11ThemeSuite.NativeMethods]::SendMessageTimeout(
+            $HWND_BROADCAST,
+            [W11ThemeSuite.NativeMethods]::WM_SETTINGCHANGE,
+            [UIntPtr]::Zero,
+            $channel,
+            0x0002,   # SMTO_ABORTIFHUNG
+            5000,     # timeout in ms
+            [ref]$result
+        ) | Out-Null
+        Write-Verbose "Broadcasted WM_SETTINGCHANGE ($channel) to all top-level windows."
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -218,7 +221,7 @@ function Set-W11RegistryTheme {
     # -----------------------------------------------------------------
     # DarkMode section
     # -----------------------------------------------------------------
-    if ('DarkMode' -in $sectionsToProcess -and $null -ne $Config.mode) {
+    if ('DarkMode' -in $sectionsToProcess -and $Config.PSObject.Properties['mode'] -and $null -ne $Config.mode) {
         Write-Verbose '--- Applying DarkMode section ---'
         $modeConfig = $Config.mode
 
@@ -245,12 +248,12 @@ function Set-W11RegistryTheme {
     # -----------------------------------------------------------------
     # AccentColor section
     # -----------------------------------------------------------------
-    if ('AccentColor' -in $sectionsToProcess -and $null -ne $Config.accentColor) {
+    if ('AccentColor' -in $sectionsToProcess -and $Config.PSObject.Properties['accentColor'] -and $null -ne $Config.accentColor) {
         Write-Verbose '--- Applying AccentColor section ---'
         $accentConfig = $Config.accentColor
 
         # Convert the hex color to an ABGR DWORD for registry storage.
-        if ($accentConfig.color) {
+        if ($accentConfig.PSObject.Properties['color'] -and $accentConfig.color) {
             $alpha = if ($accentConfig.PSObject.Properties['alpha'] -and $null -ne $accentConfig.alpha) { [uint32]$accentConfig.alpha } else { 0xFF }
             $abgrDword = ConvertTo-ABGRDword -HexColor $accentConfig.color -Alpha $alpha
 
@@ -330,7 +333,7 @@ function Set-W11RegistryTheme {
     # -----------------------------------------------------------------
     # Win32Colors section (Control Panel\Colors)
     # -----------------------------------------------------------------
-    if ($null -ne $Config.win32Colors) {
+    if ($Config.PSObject.Properties['win32Colors'] -and $null -ne $Config.win32Colors) {
         Write-Verbose '--- Applying Win32Colors section ---'
         $colorsConfig = $Config.win32Colors
         $colorPath = 'HKCU:\Control Panel\Colors'
@@ -347,7 +350,7 @@ function Set-W11RegistryTheme {
     # -----------------------------------------------------------------
     # DWM section
     # -----------------------------------------------------------------
-    if ('DWM' -in $sectionsToProcess -and $null -ne $Config.dwm) {
+    if ('DWM' -in $sectionsToProcess -and $Config.PSObject.Properties['dwm'] -and $null -ne $Config.dwm) {
         Write-Verbose '--- Applying DWM section ---'
         $dwmConfig = $Config.dwm
 
@@ -384,7 +387,7 @@ function Set-W11RegistryTheme {
     # -----------------------------------------------------------------
     # Taskbar section
     # -----------------------------------------------------------------
-    if ('Taskbar' -in $sectionsToProcess -and $null -ne $Config.taskbar) {
+    if ('Taskbar' -in $sectionsToProcess -and $Config.PSObject.Properties['taskbar'] -and $null -ne $Config.taskbar) {
         Write-Verbose '--- Applying Taskbar section ---'
         $taskbarConfig = $Config.taskbar
 
@@ -411,7 +414,7 @@ function Set-W11RegistryTheme {
     # -----------------------------------------------------------------
     # Advanced: raw registry overrides
     # -----------------------------------------------------------------
-    if ($null -ne $Config.advanced -and $null -ne $Config.advanced.registryOverrides) {
+    if ($Config.PSObject.Properties['advanced'] -and $null -ne $Config.advanced -and $Config.advanced.PSObject.Properties['registryOverrides'] -and $null -ne $Config.advanced.registryOverrides) {
         Write-Verbose '--- Applying advanced registry overrides ---'
 
         foreach ($override in $Config.advanced.registryOverrides) {
@@ -430,7 +433,12 @@ function Set-W11RegistryTheme {
     # Broadcast change notification to all windows.
     # -----------------------------------------------------------------
     Write-Verbose 'Broadcasting settings change notification...'
-    Send-SettingsChangeNotification
+    $channels = @('ImmersiveColorSet')
+    # Taskbar-specific changes need TraySettings to make Explorer pick them up
+    if ('Taskbar' -in $sectionsToProcess -and $Config.PSObject.Properties['taskbar'] -and $null -ne $Config.taskbar) {
+        $channels += 'TraySettings'
+    }
+    Send-SettingsChangeNotification -Channels $channels
 
     # -----------------------------------------------------------------
     # Optionally restart explorer.exe for a full shell refresh.
